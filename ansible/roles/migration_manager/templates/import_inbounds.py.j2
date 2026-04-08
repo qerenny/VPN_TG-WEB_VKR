@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+import json
+import ssl
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+TARGET_URL = "{{ target_protocol }}://{{ migration_manager_target_host }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}panel/api/inbounds/import"
+COOKIE = "{{ final_target_login.cookies_string }}"
+SOURCE_FILE = "{{ migration_manager_workdir }}/source_full_response.json"
+NEW_IP = "{{ hostvars[inventory_hostname]['ansible_host'] }}"
+NEW_DOMAIN = "{{ domain_name }}"
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+
+
+def parse_jsonish(value, fallback):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return json.loads(value)
+        except Exception:
+            return fallback
+    return fallback
+
+
+def normalize_host(container):
+    if isinstance(container.get("host"), list):
+        container["host"] = [NEW_DOMAIN]
+    elif "host" in container:
+        container["host"] = NEW_DOMAIN
+
+
+def update_headers(container):
+    headers = container.get("headers")
+    if not isinstance(headers, dict):
+        return
+    if "Host" in headers:
+        if isinstance(headers["Host"], list):
+            headers["Host"] = [NEW_DOMAIN]
+        else:
+            headers["Host"] = NEW_DOMAIN
+
+
+def modify_stream_settings(stream_settings):
+    if "realitySettings" in stream_settings:
+        reality_settings = stream_settings["realitySettings"]
+        if isinstance(reality_settings, dict):
+            settings = reality_settings.get("settings")
+            if isinstance(settings, dict) and "serverName" in settings:
+                settings["serverName"] = NEW_DOMAIN
+            if "serverNames" in reality_settings:
+                reality_settings["serverNames"] = [NEW_DOMAIN]
+
+    if "tlsSettings" in stream_settings and isinstance(stream_settings["tlsSettings"], dict):
+        if "serverName" in stream_settings["tlsSettings"]:
+            stream_settings["tlsSettings"]["serverName"] = NEW_DOMAIN
+
+    for settings_type in [
+        "xhttpSettings",
+        "wsSettings",
+        "grpcSettings",
+        "httpUpgradeSettings",
+    ]:
+        settings = stream_settings.get(settings_type)
+        if isinstance(settings, dict):
+            normalize_host(settings)
+            update_headers(settings)
+
+    tcp_settings = stream_settings.get("tcpSettings")
+    if isinstance(tcp_settings, dict):
+        header = tcp_settings.get("header")
+        if isinstance(header, dict):
+            request = header.get("request")
+            if isinstance(request, dict):
+                headers = request.get("headers")
+                if isinstance(headers, dict) and "Host" in headers:
+                    if isinstance(headers["Host"], list):
+                        headers["Host"] = [NEW_DOMAIN]
+                    else:
+                        headers["Host"] = NEW_DOMAIN
+
+    return stream_settings
+
+
+def modify_inbound(item):
+    for field in ["id", "up", "down", "total", "clientStats"]:
+        item.pop(field, None)
+
+    item["listen"] = NEW_IP
+
+    settings = parse_jsonish(item.get("settings", "{}"), {})
+    if isinstance(settings.get("clients"), list):
+        for client in settings["clients"]:
+            if isinstance(client, dict) and "flow" in client:
+                client["flow"] = "xtls-rprx-vision"
+        item["settings"] = json.dumps(settings)
+
+    stream_settings = parse_jsonish(item.get("streamSettings"), None)
+    if stream_settings is not None:
+        item["streamSettings"] = json.dumps(modify_stream_settings(stream_settings))
+
+    return item
+
+
+def send_item(item_dict):
+    item_json = json.dumps(modify_inbound(item_dict))
+    payload = urllib.parse.urlencode({"data": item_json}).encode("utf-8")
+
+    request = urllib.request.Request(TARGET_URL, data=payload)
+    request.add_header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+    request.add_header("Cookie", COOKIE)
+    request.add_header("User-Agent", "Ansible-Importer")
+
+    try:
+        with urllib.request.urlopen(request, context=ctx) as response:
+            body = response.read().decode("utf-8")
+    except Exception as exc:
+        print(f"[ERROR] Port {item_dict.get('port')}: {exc}")
+        return False
+
+    if '"success":true' in body.lower() or '"success": true' in body.lower():
+        print(f"[OK] Port {item_dict.get('port')} imported.")
+        return True
+
+    print(f"[FAIL] Port {item_dict.get('port')} response: {body}")
+    return False
+
+
+def main():
+    try:
+        with open(SOURCE_FILE, "r", encoding="utf-8") as source_handle:
+            source_payload = json.load(source_handle)
+    except Exception as exc:
+        print(f"Script crashed while loading source payload: {exc}")
+        return 1
+
+    inbounds = source_payload.get("obj", [])
+    print(f"Found {len(inbounds)} items. Processing...")
+
+    errors = 0
+    for item in inbounds:
+        if not send_item(item):
+            errors += 1
+        time.sleep(0.2)
+
+    if errors:
+        print(f"Migration finished with {errors} failed imports.")
+        return 1
+
+    print("Migration finished.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

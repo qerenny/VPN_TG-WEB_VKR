@@ -1,0 +1,5 @@
+nginx_proxy_subscription_backend_port: 8000
+nginx_proxy_fallback_port: 8001
+nginx_proxy_web_root: "/var/www/{{ domain_name }}"
+nginx_proxy_mode: "xver"
+nginx_proxy_acme_root: "/var/www/certbot"

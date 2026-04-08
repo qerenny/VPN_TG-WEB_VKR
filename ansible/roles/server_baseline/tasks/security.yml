@@ -1,0 +1,5 @@
+- name: Remove temporary credentials from environment memory (Security)
+  ansible.builtin.set_fact:
+    server_baseline_initial_root_password: null
+  no_log: true
+  when: inventory_hostname in groups['initial_setup_group']

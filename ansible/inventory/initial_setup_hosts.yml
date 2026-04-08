@@ -1,0 +1,15 @@
+initial_setup_group:
+  hosts: 
+    bot_01_init:
+      ansible_host: 1.1.1.1
+      ansible_user: root
+      ansible_password: "{{ bot_ru_01_password }}"
+      ansible_port: "{{ basic_ssh_port }}"
+
+    ru_01_init:
+      ansible_host: 2.2.2.2
+      ansible_user: root
+      ansible_ssh_private_key_file: "{{ basic_ansible_private_key_file }}"
+      ansible_ssh_common_args: "-o IdentitiesOnly=yes"
+      ansible_port: "{{ basic_ssh_port }}"
+

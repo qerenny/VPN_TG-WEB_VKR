@@ -1,0 +1,70 @@
+- name: Install dependencies (sqlite3, socat)
+  ansible.builtin.apt:
+    name:
+      - sqlite3
+      - socat
+    state: present
+    update_cache: true
+  when: xui_app_manage_dependencies | bool
+
+- name: Validate panel access mode
+  ansible.builtin.assert:
+    that:
+      - xui_app_panel_access_mode in ['public', 'tunnel-only']
+    fail_msg: "xui_app_panel_access_mode must be either 'public' or 'tunnel-only'."
+
+- name: Generate variables
+  ansible.builtin.import_tasks: generate_vars.yml
+  when: xui_app_manage_vars | bool
+
+- name: Install application
+  ansible.builtin.import_tasks: install.yml
+  when: xui_app_manage_install | bool
+
+- name: Configure CLI
+  ansible.builtin.import_tasks: configure_cli.yml
+  when: xui_app_manage_cli | bool
+
+- name: Configure database
+  ansible.builtin.import_tasks: configure_db.yml
+  when: xui_app_manage_db | bool
+
+- name: Save credentials
+  ansible.builtin.import_tasks: save_creds.yml
+  when: xui_app_manage_credentials | bool
+
+- name: Do the security
+  ansible.builtin.import_tasks: security.yml
+  when: xui_app_manage_security | bool
+
+- name: Allow subscription and public HTTPS ports in UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "{{ xui_app_sub_port }}"
+    - "443"
+    - "80"
+    - "11443"
+    - "8443"
+  when: xui_app_manage_firewall | bool
+
+- name: Allow panel port in UFW when public access is enabled
+  community.general.ufw:
+    rule: allow
+    port: "{{ xui_app_web_port }}"
+    proto: tcp
+  when:
+    - xui_app_manage_firewall | bool
+    - xui_app_open_panel_port_in_firewall | bool
+
+- name: Remove panel port UFW allow rule when public access is disabled
+  community.general.ufw:
+    rule: allow
+    port: "{{ xui_app_web_port }}"
+    proto: tcp
+    delete: true
+  when:
+    - xui_app_manage_firewall | bool
+    - not xui_app_open_panel_port_in_firewall | bool

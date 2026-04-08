@@ -1,0 +1,24 @@
+---
+- name: Renew certificates immediately
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  tasks:
+    - name: Ensure certbot renewal helper is present
+      ansible.builtin.import_role:
+        name: certbot_setup
+      tags: [ssl, certbot]
+
+    - name: Run certificate renewal helper now
+      ansible.builtin.command:
+        cmd: "{{ certbot_setup_renew_script_path }}"
+      register: renew_certs_now_result
+      changed_when: true
+
+    - name: Show renewal output
+      ansible.builtin.debug:
+        msg: "{{ renew_certs_now_result.stdout_lines | default([]) }}"

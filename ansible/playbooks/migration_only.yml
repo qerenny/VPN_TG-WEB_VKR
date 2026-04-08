@@ -1,0 +1,35 @@
+---
+- name: Run migration only
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  pre_tasks:
+    - name: Define persisted vars path
+      ansible.builtin.set_fact:
+        migration_only_vars_file: "{{ playbook_dir }}/secrets/{{ inventory_hostname }}_vars.yml"
+
+    - name: Check persisted 3x-ui variables file
+      delegate_to: localhost
+      become: false
+      ansible.builtin.stat:
+        path: "{{ migration_only_vars_file }}"
+      register: migration_only_vars_file_stat
+
+    - name: Fail when persisted 3x-ui variables are missing
+      ansible.builtin.fail:
+        msg: "Missing persisted vars file {{ migration_only_vars_file }}. Run panel deployment first or restore the file before migration_only."
+      when: not migration_only_vars_file_stat.stat.exists
+
+    - name: Load persisted 3x-ui variables
+      ansible.builtin.include_vars:
+        file: "{{ migration_only_vars_file }}"
+
+  tasks:
+    - name: Run Data Migration
+      ansible.builtin.import_role:
+        name: migration_manager
+      tags: [migration, data]

@@ -1,0 +1,74 @@
+- name: Install Nginx dependencies
+  ansible.builtin.apt:
+    name:
+      - gnupg2
+      - ca-certificates
+      - lsb-release
+      - ubuntu-keyring # или debian-keyring, если у тебя Debian
+    state: present
+
+- name: Add Nginx signing key
+  ansible.builtin.apt_key:
+    url: https://nginx.org/keys/nginx_signing.key
+    state: present
+
+- name: Add Nginx official repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://nginx.org/packages/mainline/{{ ansible_distribution | lower }}/ {{ ansible_distribution_release }} nginx"
+    state: present
+    filename: nginx
+
+- name: Install Nginx (latest version)
+  ansible.builtin.apt:
+    name: nginx
+    state: latest
+    update_cache: true
+
+- name: Create web root directory
+  ansible.builtin.file:
+    path: "{{ nginx_proxy_web_root }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+- name: Create ACME web root directory
+  ansible.builtin.file:
+    path: "{{ nginx_proxy_acme_root }}/.well-known/acme-challenge"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+- name: Deploy placeholder index.html
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ nginx_proxy_web_root }}/index.html"
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: Allow Nginx (www-data) to read LetsEncrypt certs
+  ansible.builtin.file:
+    path: "/etc/letsencrypt/{{ item }}"
+    mode: '0755'
+    state: directory
+  loop:
+    - live
+    - archive
+
+- name: Deploy Nginx configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'nginx -t -p /etc/nginx/ -c %s'
+  notify: Restart Nginx
+
+- name: Enable and start Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

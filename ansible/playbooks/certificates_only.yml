@@ -1,0 +1,14 @@
+---
+- name: Issue or refresh certificates prerequisites
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  tasks:
+    - name: Setup Certbot and renewal hooks
+      ansible.builtin.import_role:
+        name: certbot_setup
+      tags: [ssl, certbot]

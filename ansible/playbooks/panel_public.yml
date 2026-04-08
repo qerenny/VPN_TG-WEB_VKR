@@ -1,0 +1,19 @@
+---
+- name: Deploy 3x-ui with public panel access
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  tasks:
+    - name: Setup Certbot and SSL
+      ansible.builtin.import_role:
+        name: certbot_setup
+      tags: [ssl, certbot]
+
+    - name: Deploy X-UI Application
+      ansible.builtin.import_role:
+        name: xui_app
+      tags: [app, xui]

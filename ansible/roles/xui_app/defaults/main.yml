@@ -1,0 +1,18 @@
+xui_app_cert_file: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
+xui_app_key_file: "/etc/letsencrypt/live/{{ domain_name }}/privkey.pem"
+xui_app_local_secrets_dir: "{{ playbook_dir }}/secrets"
+xui_app_install_script_url: "https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh"
+xui_app_install_script_path: "/tmp/install_xui.sh"
+xui_app_force_update: false
+xui_app_manage_dependencies: true
+xui_app_manage_vars: true
+xui_app_manage_install: true
+xui_app_manage_cli: true
+xui_app_manage_db: true
+xui_app_manage_credentials: true
+xui_app_manage_security: true
+xui_app_manage_firewall: true
+xui_app_panel_access_mode: "public"
+xui_app_panel_bind_host: "{{ '127.0.0.1' if xui_app_panel_access_mode == 'tunnel-only' else '0.0.0.0' }}"
+xui_app_open_panel_port_in_firewall: "{{ xui_app_panel_access_mode == 'public' }}"
+xui_app_cli_state_file: "/etc/x-ui/.ansible-cli-state.yml"

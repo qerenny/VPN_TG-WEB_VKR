@@ -1,0 +1,5 @@
+migration_manager_target_host: "127.0.0.1"
+migration_manager_target_base_url: "https://{{ migration_manager_target_host }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}"
+migration_manager_target_validate_certs: false
+migration_manager_source_validate_certs: false
+migration_manager_workdir: "/tmp/nowmeow-migration-{{ inventory_hostname }}"

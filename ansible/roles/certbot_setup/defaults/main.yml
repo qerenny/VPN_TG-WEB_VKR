@@ -1,0 +1,5 @@
+# Email для уведомлений об истечении сертификата
+certbot_setup_email: "enderbrocreep3@gmail.com"
+certbot_setup_renew_script_path: "/usr/local/bin/nowmeow-certbot-renew.sh"
+certbot_setup_pre_hook_command: "systemctl stop nginx || true"
+certbot_setup_post_hook_command: "systemctl start nginx || true; systemctl try-restart x-ui || true"

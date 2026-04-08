@@ -1,0 +1,26 @@
+---
+- name: Update system packages on managed servers
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    update_system_reboot: true
+
+  tasks:
+    - name: Upgrade apt packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: full
+        autoremove: true
+      when: ansible_os_family == "Debian"
+      register: update_system_apt
+
+    - name: Reboot after package upgrade
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible after package upgrade."
+        reboot_timeout: 900
+      when:
+        - ansible_os_family == "Debian"
+        - update_system_reboot | bool
+        - update_system_apt.changed

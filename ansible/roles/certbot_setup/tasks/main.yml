@@ -1,0 +1,80 @@
+- name: Prepare certbot packages without autostarting Nginx
+  block:
+    - name: Prevent Nginx from starting immediately after installation
+      ansible.builtin.copy:
+        content: |
+          #!/bin/sh
+          exit 101
+        dest: /usr/sbin/policy-rc.d
+        mode: '0755'
+
+    - name: Fix broken dpkg/apt state if exists
+      ansible.builtin.command: dpkg --configure -a
+      changed_when: false
+      failed_when: false
+
+    - name: Install Certbot
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - cron
+        state: present
+        update_cache: true
+
+    - name: Disable IPv6 in default Nginx config
+      ansible.builtin.replace:
+        path: /etc/nginx/sites-available/default
+        regexp: '^(.*listen \[::\]:80.*)$'
+        replace: '# \1'
+      ignore_errors: true
+  always:
+    - name: Remove policy-rc.d to allow services to start normally
+      ansible.builtin.file:
+        path: /usr/sbin/policy-rc.d
+        state: absent
+
+- name: Check if certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
+  register: certbot_setup_cert_check
+
+- name: Stop Nginx to free port 80 for standalone ACME
+  ansible.builtin.service:
+    name: nginx
+    state: stopped
+  failed_when: false
+  when: not certbot_setup_cert_check.stat.exists
+
+- name: Obtain SSL certificate (Standalone mode)
+  ansible.builtin.command:
+    cmd: >
+      certbot certonly --standalone
+      --non-interactive
+      --agree-tos
+      --email {{ certbot_setup_email }}
+      -d {{ domain_name }}
+  when: not certbot_setup_cert_check.stat.exists
+  changed_when: true
+
+- name: Install certificate renewal helper
+  ansible.builtin.copy:
+    dest: "{{ certbot_setup_renew_script_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/bin/sh
+      set -eu
+
+      certbot renew --quiet --standalone \
+        --pre-hook "{{ certbot_setup_pre_hook_command }}" \
+        --post-hook "{{ certbot_setup_post_hook_command }}"
+
+- name: Create Cron Job for Auto-Renewal
+  ansible.builtin.cron:
+    name: "Certbot Renew"
+    minute: "30"
+    hour: "3"
+    job: "{{ certbot_setup_renew_script_path }}"
+    state: present
+    user: root

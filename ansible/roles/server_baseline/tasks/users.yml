@@ -1,0 +1,27 @@
+- name: Create a new admin user with sudo privileges {{ server_baseline_user }}
+  ansible.builtin.user:
+    name: "{{ server_baseline_user }}"
+    groups: sudo
+    append: true
+    state: present
+    shell: /bin/bash
+  when: inventory_hostname in groups['initial_setup_group']
+
+- name: Grant NOPASSWD sudo access to {{ server_baseline_user }}
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/99-{{ server_baseline_user }}-nopasswd
+    create: true
+    state: present
+    line: '{{ server_baseline_user }} ALL=(ALL) NOPASSWD: ALL'
+    mode: '0440'
+    owner: root
+    group: root
+    validate: 'visudo -cf %s'
+  when: inventory_hostname in groups['initial_setup_group']
+
+- name: Deploy local SSH public key for {{ server_baseline_user }}
+  ansible.posix.authorized_key:
+    user: "{{ server_baseline_user }}"
+    state: present
+    key: "{{ lookup('file', server_baseline_public_key_file) }}"
+  when: inventory_hostname in groups['initial_setup_group']

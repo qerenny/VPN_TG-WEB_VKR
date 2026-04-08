@@ -1,0 +1,121 @@
+services:
+  xray:
+    build:
+      context: ./docker/xray
+      dockerfile: Dockerfile
+    container_name: nowmeow-xray
+    restart: unless-stopped
+    profiles:
+      - proxy
+    environment:
+      TELEGRAM_VLESS_URL: ${TELEGRAM_VLESS_URL:-}
+
+  postgres:
+    image: postgres:15
+    container_name: nowmeow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nowmeow
+      POSTGRES_USER: nowmeow
+      POSTGRES_PASSWORD: nowmeow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nowmeow"]
+      interval: 10s 
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nowmeow-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: nowmeow-backend
+    restart: unless-stopped
+    environment:
+      NOWMEOW_CONFIG_PATH: /app/local_env.yaml
+    volumes:
+      - ./shared:/app/shared
+      - ./backend:/app/backend 
+      - ./local_env.yaml:/app/local_env.yaml
+
+    env_file:
+      - local_env.yaml
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy 
+      redis:
+        condition: service_healthy
+
+  telegram_bot:
+    build:
+      context: .
+      dockerfile: telegram_bot/Dockerfile
+    container_name: nowmeow-bot
+    restart: unless-stopped
+    environment:
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
+      NOWMEOW_CONFIG_PATH: /app/local_env.yaml
+    volumes:
+      - ./shared:/app/shared
+      - ./telegram_bot:/app/telegram_bot # Проброс для разработки
+      - ./local_env.yaml:/app/local_env.yaml
+    env_file:
+      - local_env.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/telegram-bot-ready && pgrep -f 'python -m telegram_bot.main' >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  alembic:
+    build:
+      context: .
+      dockerfile: shared/alembic/Dockerfile
+    container_name: nowmeow-alembic
+    profiles: ["tools"] # Не запускается сам по себе
+    environment:
+      NOWMEOW_CONFIG_PATH: /app/local_env.yaml
+    volumes:
+      - ./local_env.yaml:/app/local_env.yaml
+    env_file:
+      - local_env.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: nowmeow-frontend-builder
+    profiles: ["tools"] # Не запускается сам по себе
+    command: >
+      sh -c "rm -rf /frontend-dist/assets /frontend-dist/fonts /frontend-dist/favicon.svg /frontend-dist/index.html && cp -r /usr/share/nginx/html/* /frontend-dist/"
+    volumes:
+      - ./frontend/dist:/frontend-dist
+
+volumes:
+  pgdata:

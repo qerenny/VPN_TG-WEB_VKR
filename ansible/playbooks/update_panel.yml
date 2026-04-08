@@ -1,0 +1,23 @@
+---
+- name: Update 3x-ui panel only
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  vars:
+    xui_app_force_update: true
+    xui_app_manage_vars: false
+    xui_app_manage_cli: false
+    xui_app_manage_db: false
+    xui_app_manage_credentials: false
+    xui_app_manage_security: false
+    xui_app_manage_firewall: false
+
+  tasks:
+    - name: Update X-UI Application
+      ansible.builtin.import_role:
+        name: xui_app
+      tags: [app, xui]

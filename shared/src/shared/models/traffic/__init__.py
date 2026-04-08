@@ -1,0 +1,1 @@
+"""Traffic-scoped entitlement models."""

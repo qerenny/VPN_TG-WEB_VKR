@@ -1,0 +1,52 @@
+---
+- name: Ensure secrets directory exists locally
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ xui_app_local_secrets_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Define path for persistent vars file
+  ansible.builtin.set_fact:
+    local_vars_file: "{{ xui_app_local_secrets_dir }}/{{ inventory_hostname }}_vars.yml"
+
+- name: Check if vars file already exists
+  delegate_to: localhost
+  become: false
+  ansible.builtin.stat:
+    path: "{{ local_vars_file }}"
+  register: existing_vars_file
+
+- name: Load existing variables from file
+  delegate_to: localhost
+  become: false
+  ansible.builtin.include_vars:
+    file: "{{ local_vars_file }}"
+  when: existing_vars_file.stat.exists
+
+- block:
+    - name: Generate random credentials and ports
+      ansible.builtin.set_fact:
+        xui_app_username: "{{ lookup('password', '/dev/null length=24 chars=ascii_letters') }}"
+        xui_app_password: "{{ lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}"
+        xui_app_web_port: "{{ 10000 + (20000 | random) }}"
+        xui_app_sub_port: "{{ 30000 + (20000 | random) }}"
+        xui_app_web_base_path: "/{{ lookup('password', '/dev/null length=24 chars=ascii_letters') }}/"
+        xui_app_sub_path: "/{{ lookup('password', '/dev/null length=24 chars=ascii_letters') }}/"
+
+    - name: Save generated variables to local YAML file
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        content: |
+          xui_app_username: "{{ xui_app_username }}"
+          xui_app_password: "{{ xui_app_password }}"
+          xui_app_web_port: "{{ xui_app_web_port }}"
+          xui_app_sub_port: "{{ xui_app_sub_port }}"
+          xui_app_web_base_path: "{{ xui_app_web_base_path }}"
+          xui_app_sub_path: "{{ xui_app_sub_path }}"
+        dest: "{{ local_vars_file }}"
+        mode: '0600'
+      no_log: true
+  when: not existing_vars_file.stat.exists

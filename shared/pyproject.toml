@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "shared"
+version = "0.1.0"
+description = "Shared models, repositories, utils for backend and telegram_bot"
+authors = ["Your Name <you@example.com>"]
+packages = [{ include = "shared", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+sqlmodel = "^0.0.16"
+pydantic = "^2.6"
+sqlalchemy = "^2.0"
+alembic = "^1.13"
+python-dotenv = "^1.0"
+pyyaml = "^6.0.2"
+pyjwt = "^2.10.1"
+asyncpg = "^0.30.0"
+psycopg2-binary = "^2.9.10"
+pytelegrambotapi = "^4.27.0"
+aiohttp = "^3.12.13"
+loguru = "^0.7.2"
+sentry-sdk = "^2.53.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

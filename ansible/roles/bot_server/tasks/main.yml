@@ -1,0 +1,242 @@
+- name: Remove Docker packages that conflict with Docker official repository
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose
+      - docker-compose-v2
+      - docker-doc
+      - podman-docker
+      - containerd
+      - runc
+    state: absent
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_use_official_repo | bool
+
+- name: Install Docker official repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+    update_cache: true
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_use_official_repo | bool
+
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_use_official_repo | bool
+
+- name: Install Docker official apt key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_use_official_repo | bool
+
+- name: Detect Debian package architecture
+  ansible.builtin.command: dpkg --print-architecture
+  register: bot_server_dpkg_arch
+  changed_when: false
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_use_official_repo | bool
+
+- name: Add Docker official apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      deb [arch={{ bot_server_dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_use_official_repo | bool
+
+- name: Prepare Nginx packages without autostarting service
+  block:
+    - name: Prevent Nginx from starting immediately after installation
+      ansible.builtin.copy:
+        content: |
+          #!/bin/sh
+          exit 101
+        dest: /usr/sbin/policy-rc.d
+        mode: '0755'
+
+    - name: Fix broken dpkg state if exists
+      ansible.builtin.command: dpkg --configure -a
+      changed_when: false
+      failed_when: false
+
+    - name: Install nginx-common first
+      ansible.builtin.apt:
+        name: nginx-common
+        state: present
+        update_cache: true
+
+    - name: Disable IPv6 in default Nginx site when host does not use it
+      ansible.builtin.replace:
+        path: /etc/nginx/sites-available/default
+        regexp: '^(.*listen \[::\]:80.*)$'
+        replace: '# \1'
+      when: not bot_server_enable_ipv6 | bool
+
+    - name: Install bot host packages
+      ansible.builtin.apt:
+        name: "{{ ['nginx', 'rsync'] + (['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-buildx-plugin', 'docker-compose-plugin'] if bot_server_manage_docker | bool and bot_server_docker_use_official_repo | bool else (['docker.io'] if bot_server_manage_docker | bool else [])) }}"
+        state: present
+        update_cache: true
+  always:
+    - name: Remove policy-rc.d to allow services to start normally
+      ansible.builtin.file:
+        path: /usr/sbin/policy-rc.d
+        state: absent
+
+- name: Reload systemd units after Docker package changes
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: bot_server_manage_docker | bool
+
+- name: Reset failed Docker units after package replacement
+  ansible.builtin.command: systemctl reset-failed docker.service docker.socket
+  changed_when: false
+  failed_when: false
+  when: bot_server_manage_docker | bool
+
+- name: Enable and restart Docker socket
+  ansible.builtin.service:
+    name: docker.socket
+    state: restarted
+    enabled: true
+  when: bot_server_manage_docker | bool
+
+- name: Enable and start Docker
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+  when: bot_server_manage_docker | bool
+
+- name: Add deploy user to docker group
+  ansible.builtin.user:
+    name: "{{ bot_server_docker_login_user }}"
+    groups: docker
+    append: true
+  when: bot_server_manage_docker | bool
+
+- name: Allow deploy user to run Docker through sudo without password
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ bot_server_docker_login_user }}-docker"
+    content: |
+      {{ bot_server_docker_login_user }} ALL=(root) NOPASSWD: /usr/bin/docker
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_docker_sudoers_enabled | bool
+
+- name: Ensure bot site root exists
+  ansible.builtin.file:
+    path: "{{ bot_server_site_root }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+- name: Deploy bot landing page
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ bot_server_site_root }}/index.html"
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: Ensure SSH directory exists for GitHub deploy key
+  ansible.builtin.file:
+    path: "/home/{{ bot_server_github_key_user }}/.ssh"
+    state: directory
+    owner: "{{ bot_server_github_key_user }}"
+    group: "{{ bot_server_github_key_user }}"
+    mode: '0700'
+  when: bot_server_github_deploy_key_private | length > 0
+
+- name: Install GitHub deploy private key
+  ansible.builtin.copy:
+    dest: "{{ bot_server_github_deploy_key_path }}"
+    content: "{{ bot_server_github_deploy_key_private }}"
+    owner: "{{ bot_server_github_key_user }}"
+    group: "{{ bot_server_github_key_user }}"
+    mode: '0600'
+  no_log: true
+  when: bot_server_github_deploy_key_private | length > 0
+
+- name: Install GitHub deploy public key
+  ansible.builtin.copy:
+    dest: "{{ bot_server_github_deploy_key_path }}.pub"
+    content: "{{ bot_server_github_deploy_key_public }}"
+    owner: "{{ bot_server_github_key_user }}"
+    group: "{{ bot_server_github_key_user }}"
+    mode: '0644'
+  no_log: true
+  when: bot_server_github_deploy_key_public | length > 0
+
+- name: Configure SSH for GitHub access
+  ansible.builtin.blockinfile:
+    dest: "/home/{{ bot_server_github_key_user }}/.ssh/config"
+    create: true
+    owner: "{{ bot_server_github_key_user }}"
+    group: "{{ bot_server_github_key_user }}"
+    mode: '0600'
+    marker: "# {mark} ANSIBLE MANAGED BOT GITHUB ACCESS"
+    block: |
+      Host github.com
+          HostName github.com
+          User git
+          IdentityFile {{ bot_server_github_deploy_key_path }}
+          IdentitiesOnly yes
+          StrictHostKeyChecking accept-new
+  when: bot_server_github_deploy_key_private | length > 0
+
+- name: Log in to GHCR for bot deploy user
+  become_user: "{{ bot_server_docker_login_user }}"
+  ansible.builtin.shell: |
+    set -eu
+    echo '{{ bot_server_ghcr_token }}' | docker login {{ bot_server_ghcr_registry }} -u {{ bot_server_ghcr_username }} --password-stdin
+  args:
+    executable: /bin/bash
+  no_log: true
+  changed_when: true
+  when:
+    - bot_server_manage_docker | bool
+    - bot_server_ghcr_token | length > 0
+
+- name: Deploy bot Nginx configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'nginx -t -p /etc/nginx/ -c %s'
+  notify: Restart Nginx
+
+- name: Enable and start Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

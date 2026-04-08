@@ -1,0 +1,17 @@
+- name: Disable IPv6 module loading (to prevent leaks)
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT'
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="ipv6.disable=1"'
+    state: present
+  notify: Update grub
+  when: ansible_os_family == "Debian"
+
+- name: Disable IPv6 via sysctl (RUNTIME)
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.disable_ipv6
+    value: '1'
+    state: present
+    sysctl_set: true
+    reload: true
+  when: ansible_os_family == "Debian"

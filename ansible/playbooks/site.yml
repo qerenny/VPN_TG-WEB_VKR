@@ -1,0 +1,44 @@
+---
+- name: Deploy High-Performance Xray Infrastructure
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    site_run_certbot: true
+    site_run_xui: true
+    site_run_nginx: true
+    site_run_migration: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml" 
+
+  tasks:
+    - name: Setup Certbot and SSL
+      ansible.builtin.import_role:
+        name: certbot_setup
+      when: site_run_certbot | bool
+      tags: [ssl, certbot]
+
+    - name: Deploy X-UI Application
+      ansible.builtin.import_role:
+        name: xui_app
+      when: site_run_xui | bool
+      tags: [app, xui]
+
+    - name: Configure Nginx Reverse Proxy
+      ansible.builtin.import_role:
+        name: nginx_proxy
+      when: site_run_nginx | bool
+      tags: [nginx, proxy]
+
+    - name: Force restart of services before migration
+      ansible.builtin.meta: flush_handlers
+      when: site_run_xui | bool or site_run_nginx | bool
+      tags: [always]
+
+    - name: Run Data Migration
+      ansible.builtin.import_role:
+        name: migration_manager
+      when: site_run_migration | bool
+      tags: [migration, data]

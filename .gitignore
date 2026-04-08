@@ -264,6 +264,8 @@ dist-ssr
 *.sw?
 .ruff_cache
 *.yaml
+!*.example.yaml
+!*.yaml.example
 .vscode
 project.code-workspace
 dep.env

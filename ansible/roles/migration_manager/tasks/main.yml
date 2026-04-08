@@ -1,0 +1,141 @@
+- name: Install Python3 (required for system)
+  ansible.builtin.apt:
+    name: python3
+    state: present
+
+# Ждем, пока порт X-UI поднимется
+- name: Wait for X-UI port to be open
+  ansible.builtin.wait_for:
+    host: "{{ migration_manager_target_host }}"
+    port: "{{ xui_app_web_port }}"
+    delay: 5
+    timeout: 60
+    state: started
+
+# --- ШАГ 1: Проверяем состояние Целевого сервера ---
+
+- name: Login to Target Server (Check state)
+  ansible.builtin.uri:
+    url: "{{ migration_manager_target_base_url }}login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ xui_app_username }}"
+      password: "{{ xui_app_password }}"
+    status_code: 200
+    validate_certs: "{{ migration_manager_target_validate_certs }}"
+  register: target_login_check
+  ignore_errors: true 
+  no_log: true
+
+- name: Login to Target Server (HTTP Fallback)
+  ansible.builtin.uri:
+    url: "http://{{ migration_manager_target_host }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ xui_app_username }}"
+      password: "{{ xui_app_password }}"
+    status_code: 200
+  register: target_login_check_http
+  when: target_login_check.failed
+  no_log: true
+  
+- name: Set correct login fact
+  ansible.builtin.set_fact:
+    final_target_login: "{{ target_login_check_http if target_login_check.failed else target_login_check }}"
+    target_protocol: "{{ 'http' if target_login_check.failed else 'https' }}"
+  no_log: true
+
+- name: Get existing inbounds from Target
+  ansible.builtin.uri:
+    url: "{{ target_protocol }}://{{ migration_manager_target_host }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}panel/api/inbounds/list"
+    method: GET
+    headers:
+      Cookie: "{{ final_target_login.cookies_string }}"
+    return_content: true
+    validate_certs: "{{ migration_manager_target_validate_certs }}"
+  register: target_existing_inbounds
+  no_log: true
+
+- name: Calculate target inbound count
+  ansible.builtin.set_fact:
+    target_inbounds_count: "{{ target_existing_inbounds.json.obj | default([]) | length }}"
+
+# --- ШАГ 2: Блок миграции (выполняется ТОЛЬКО если список пуст) ---
+
+- name: Migration Block (Loop Import with Deep Modification)
+  when: target_inbounds_count == 0
+  block:
+    - name: Debug message
+      ansible.builtin.debug:
+        msg: "Target server is empty. Starting Deep Modification Import..."
+
+    - name: Create migration work directory
+      ansible.builtin.file:
+        path: "{{ migration_manager_workdir }}"
+        state: directory
+        mode: '0700'
+
+    # 1. Логинимся на Source
+    - name: Login to Source Server
+      ansible.builtin.uri:
+        url: "{{ migration_manager_source_url }}/login"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          username: "{{ migration_manager_source_username }}"
+          password: "{{ migration_manager_source_password }}"
+        status_code: 200
+        headers:
+          Content-Type: "application/x-www-form-urlencoded"
+        validate_certs: "{{ migration_manager_source_validate_certs }}"
+      register: migration_manager_source_login
+      no_log: true
+
+    # 2. Скачиваем конфиг
+    - name: Download Config
+      ansible.builtin.uri:
+        url: "{{ migration_manager_source_url }}/panel/api/inbounds/list"
+        method: GET
+        headers:
+          Cookie: "{{ migration_manager_source_login.cookies_string }}"
+        validate_certs: "{{ migration_manager_source_validate_certs }}"
+        dest: "{{ migration_manager_workdir }}/source_full_response.json"
+      no_log: true
+
+    - name: Render migration importer
+      ansible.builtin.template:
+        src: import_inbounds.py.j2
+        dest: "{{ migration_manager_workdir }}/import_inbounds.py"
+        mode: '0755'
+      no_log: true
+
+    # 4. Запускаем
+    - name: Run Loop Import
+      ansible.builtin.command: python3 "{{ migration_manager_workdir }}/import_inbounds.py"
+      register: loop_import_result
+      changed_when: true
+
+    # 5. Результат
+    - name: Show Result
+      ansible.builtin.debug:
+        msg: "{{ loop_import_result.stdout_lines }}"
+  always:
+    - name: Cleanup
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ migration_manager_workdir }}/source_full_response.json"
+        - "{{ migration_manager_workdir }}/import_inbounds.py"
+
+    - name: Remove migration work directory
+      ansible.builtin.file:
+        path: "{{ migration_manager_workdir }}"
+        state: absent
+
+- name: Skip message
+  ansible.builtin.debug:
+    msg: "Target server already has configurations ({{ target_inbounds_count }} inbounds). Migration skipped."
+  when: target_inbounds_count > 0

@@ -1,0 +1,9 @@
+.vault_pass
+logs/
+*.log
+.DS_Store
+.vscode/
+.ansible/
+*.yaml
+*.txt
+playbooks/secrets/

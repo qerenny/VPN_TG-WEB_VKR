@@ -1,0 +1,24 @@
+- name: Persist desired X-UI CLI state
+  ansible.builtin.copy:
+    dest: "{{ xui_app_cli_state_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+    content: |
+      username: "{{ xui_app_username }}"
+      password: "{{ xui_app_password }}"
+      port: "{{ xui_app_web_port }}"
+      web_base_path: "{{ xui_app_web_base_path }}"
+  register: xui_cli_state
+  no_log: true
+
+- name: Configure Basic X-UI Settings via CLI
+  ansible.builtin.command: >
+    /usr/local/x-ui/x-ui setting 
+    -username "{{ xui_app_username }}"
+    -password "{{ xui_app_password }}"
+    -port {{ xui_app_web_port }}
+    -webBasePath "{{ xui_app_web_base_path }}"
+  when: xui_cli_state.changed or (xui_install_result is defined and xui_install_result.changed)
+  notify: Restart x-ui
+  no_log: true

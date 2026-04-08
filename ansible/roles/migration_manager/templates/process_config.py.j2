@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+import json
+import sys
+
+# Параметры, которые мы меняем (подставляются Ansible)
+NEW_IP = "{{ ansible_host }}"
+NEW_DOMAIN = "{{ domain_name }}"
+
+def process_data(raw_data):
+    try:
+        data = json.loads(raw_data)
+        
+        # API 3x-ui обычно возвращает список внутри ключа 'obj'
+        inbounds_list = data.get('obj', []) if isinstance(data, dict) else data
+
+        cleaned_inbounds = []
+
+        for inbound in inbounds_list:
+            # 1. Удаляем ID и статистику, чтобы БД нового сервера создала новые записи
+            # Если оставить старый ID, импорт может упасть из-за конфликта Primary Key
+            fields_to_remove = ['id', 'up', 'down', 'total']
+            for field in fields_to_remove:
+                if field in inbound:
+                    del inbound[field]
+
+            # 2. Обновляем IP прослушивания
+            # (Если сервер за NAT, безопаснее ставить "0.0.0.0" или "", но оставляем вашу логику)
+            inbound['listen'] = NEW_IP
+            
+            # 3. Обработка streamSettings
+            if 'streamSettings' in inbound and inbound['streamSettings']:
+                try:
+                    stream_settings = json.loads(inbound['streamSettings'])
+                    
+                    # Замена домена в Reality
+                    if 'realitySettings' in stream_settings:
+                        if 'serverNames' in stream_settings['realitySettings']:
+                            stream_settings['realitySettings']['serverNames'] = [NEW_DOMAIN]
+                        
+                        # Опционально: генерация новых ключей (здесь оставлено как есть для сохранения клиентов)
+                    
+                    # Замена домена в Headers/Host для других протоколов (TCP/WS/GRPC/HTTPUpgrade)
+                    for settings_type in ['xhttpSettings', 'wsSettings', 'tcpSettings', 'grpcSettings', 'httpUpgradeSettings']:
+                        if settings_type in stream_settings:
+                            # Меняем host, если он там есть
+                            if 'host' in stream_settings[settings_type]:
+                                # Часто host - это строка, но иногда (в старых версиях) список.
+                                # В X-UI обычно строка.
+                                stream_settings[settings_type]['host'] = NEW_DOMAIN
+                                
+                            # Меняем Host в заголовках
+                            if 'headers' in stream_settings[settings_type] and 'Host' in stream_settings[settings_type]['headers']:
+                                stream_settings[settings_type]['headers']['Host'] = NEW_DOMAIN
+
+                    # Важно: В 3x-ui иногда используются поля "tlsSettings" для обычного TLS
+                    if 'tlsSettings' in stream_settings:
+                        if 'serverName' in stream_settings['tlsSettings']:
+                             stream_settings['tlsSettings']['serverName'] = NEW_DOMAIN
+
+                    # Запаковываем обратно в строку
+                    inbound['streamSettings'] = json.dumps(stream_settings)
+                    
+                except Exception as e:
+                    sys.stderr.write(f"Warning: Error processing streamSettings: {e}\n")
+
+            # Добавляем обработанный инбаунд в список
+            cleaned_inbounds.append(inbound)
+
+        # Выводим чистый JSON-список в stdout
+        print(json.dumps(cleaned_inbounds))
+
+    except Exception as e:
+        sys.stderr.write(f"Critical Error parsing JSON: {e}\n")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    # Читаем JSON из stdin
+    input_data = sys.stdin.read()
+    if not input_data:
+        sys.stderr.write("Error: No input data received\n")
+        sys.exit(1)
+    process_data(input_data)

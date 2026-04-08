@@ -1,0 +1,14 @@
+---
+- name: Update Nginx mask only
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  tasks:
+    - name: Configure Nginx Reverse Proxy
+      ansible.builtin.import_role:
+        name: nginx_proxy
+      tags: [nginx, proxy]

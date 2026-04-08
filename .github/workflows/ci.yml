@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "codex/**"
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: python -m pip install --upgrade pip poetry
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.create false
+          cd shared && poetry lock && poetry install --no-interaction
+          cd ../backend && poetry lock && poetry install --no-interaction
+          cd ../telegram_bot && poetry lock && poetry install --no-interaction
+
+      - name: Prepare test config
+        run: cp tests/integration/env.ci.yaml local_env.yaml
+
+      - name: Validate config and Docker wiring
+        run: |
+          ruby -e 'require "yaml"; %w[.github/workflows/ci.yml .github/workflows/deploy.yml docker-compose.yml docker-compose.prod.yml].each { |p| YAML.load_file(p); puts "OK #{p}" }'
+          if find backend telegram_bot shared frontend -name Dockerfile -print0 | xargs -0 grep -nE 'COPY[[:space:]]+\./.*(local_env\.yaml|production_env\.yaml|env\.yaml)'; then
+            echo "::error::Docker images must not bake environment YAML files into the image."
+            exit 1
+          fi
+          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
+          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
+          docker compose config --services >/dev/null
+          docker compose -f docker-compose.prod.yml config --services >/dev/null
+
+      - name: Run unit and smoke tests with coverage
+        run: |
+          pytest -q -m "not integration" \
+            --cov=backend \
+            --cov=shared \
+            --cov=telegram_bot \
+            --cov-config=.coveragerc \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:coverage.xml
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          if [ ! -f coverage.xml ]; then
+            echo "coverage.xml not found; skipping coverage summary"
+            exit 0
+          fi
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("coverage.xml").getroot()
+          rate = float(root.attrib.get("line-rate", 0.0)) * 100
+          text = f"## Coverage\n\nTotal line coverage: **{rate:.2f}%**\n"
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(text)
+          PY
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  integration-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: nowmeow_integration
+          POSTGRES_USER: nowmeow
+          POSTGRES_PASSWORD: nowmeow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowmeow -d nowmeow_integration"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: python -m pip install --upgrade pip poetry
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.create false
+          cd shared && poetry lock && poetry install --no-interaction
+          cd ../backend && poetry lock && poetry install --no-interaction
+          cd ../telegram_bot && poetry lock && poetry install --no-interaction
+
+      - name: Prepare integration config
+        run: cp tests/integration/env.ci.yaml local_env.yaml
+
+      - name: Validate config and Docker wiring
+        run: |
+          ruby -e 'require "yaml"; %w[.github/workflows/ci.yml .github/workflows/deploy.yml docker-compose.yml docker-compose.prod.yml].each { |p| YAML.load_file(p); puts "OK #{p}" }'
+          if find backend telegram_bot shared frontend -name Dockerfile -print0 | xargs -0 grep -nE 'COPY[[:space:]]+\./.*(local_env\.yaml|production_env\.yaml|env\.yaml)'; then
+            echo "::error::Docker images must not bake environment YAML files into the image."
+            exit 1
+          fi
+          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
+          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
+          docker compose config --services >/dev/null
+          docker compose -f docker-compose.prod.yml config --services >/dev/null
+
+      - name: Run integration smoke tests
+        env:
+          NOWMEOW_RUN_INTEGRATION: "1"
+          NOWMEOW_CONFIG_PATH: ${{ github.workspace }}/tests/integration/env.ci.yaml
+        run: pytest -q -m integration tests/integration

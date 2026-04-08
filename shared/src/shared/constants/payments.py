@@ -1,0 +1,24 @@
+PLAN_KIND_TRIAL = "trial"
+PLAN_KIND_BONUS = "bonus"
+PLAN_KIND_PAID = "paid"
+
+SUBSCRIPTION_PAYLOAD_TRIAL_3D = "day3"
+SUBSCRIPTION_PAYLOAD_NEWS_BONUS_4D = "day4"
+
+PROVIDER_STATUS_PAID = frozenset({"paid", "succeeded"})
+PROVIDER_STATUS_CANCELED = frozenset({"canceled", "cancelled", "expired"})
+PROVIDER_STATUS_FAILED = frozenset({"failed", "refunded", "rejected"})
+
+RUNTIME_PAYMENT_STATUS_PAID = "paid"
+RUNTIME_PAYMENT_STATUS_PENDING = "pending"
+RUNTIME_PAYMENT_STATUS_CANCELED = "canceled"
+RUNTIME_PAYMENT_STATUS_FAILED = "failed"
+
+ORDER_STATUS_PENDING_PAYMENT = "pending_payment"
+ORDER_STATUS_PAID = "paid"
+ORDER_STATUS_FULFILLED = "fulfilled"
+ORDER_STATUS_CANCELED = "canceled"
+ORDER_STATUS_FAILED = "failed"
+
+PAID_PROVIDER_STATUSES = frozenset(PROVIDER_STATUS_PAID)
+PAYMENT_PROVIDER_UNKNOWN = "unknown"

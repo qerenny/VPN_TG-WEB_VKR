@@ -1,0 +1,39 @@
+- name: Import users tasks
+  ansible.builtin.import_tasks: users.yml
+
+- name: Import packages tasks
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Import firewall tasks
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Import ssh tasks
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Import ipv6 tasks
+  ansible.builtin.import_tasks: ipv6.yml
+
+- name: Import security tasks
+  ansible.builtin.import_tasks: security.yml
+
+- name: Apply pending handlers before reboot
+  ansible.builtin.meta: flush_handlers
+
+- name: Schedule reboot for baseline changes
+  ansible.builtin.command:
+    cmd: shutdown -r +1 "Reboot initiated by Ansible for server baseline changes to take effect."
+  async: 1
+  poll: 0
+  when: inventory_hostname in groups['initial_setup_group']
+  changed_when: true
+
+- name: Wait for SSH on the hardened port after reboot
+  delegate_to: localhost
+  become: false
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ server_baseline_ssh_port }}"
+    state: started
+    delay: 70
+    timeout: 600
+  when: inventory_hostname in groups['initial_setup_group']

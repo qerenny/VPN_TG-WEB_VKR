@@ -1,0 +1,8 @@
+- name: Initial Setup Playbook
+  hosts: initial_setup_group
+  become: true
+  gather_facts: true
+  roles:
+    - server_baseline
+
+  

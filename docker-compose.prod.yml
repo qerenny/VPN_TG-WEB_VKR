@@ -1,0 +1,128 @@
+services:
+  xray:
+    build:
+      context: ./docker/xray
+      dockerfile: Dockerfile
+    container_name: nowmeow-xray
+    restart: unless-stopped
+    profiles:
+      - proxy
+    environment:
+      TELEGRAM_VLESS_URL: ${TELEGRAM_VLESS_URL:-}
+
+  backend:
+    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/backend:latest
+    container_name: nowmeow-backend
+    restart: unless-stopped
+    environment:
+      NOWMEOW_CONFIG_PATH: /app/production_env.yaml
+    volumes:
+      - type: bind
+        source: ./production_env.yaml
+        target: /app/production_env.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  alembic:
+    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/alembic:latest
+    container_name: nowmeow-alembic
+    environment:
+      NOWMEOW_CONFIG_PATH: /app/production_env.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./production_env.yaml
+        target: /app/production_env.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    profiles:
+      - tools
+
+  telegram_bot:
+    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/telegram_bot:latest
+    container_name: nowmeow-bot
+    restart: unless-stopped
+    environment:
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
+      NOWMEOW_CONFIG_PATH: /app/production_env.yaml
+    volumes:
+      - type: bind
+        source: ./production_env.yaml
+        target: /app/production_env.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/telegram-bot-ready && pgrep -f 'python -m telegram_bot.main' >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/frontend:latest
+    container_name: nowmeow-frontend-extractor
+    restart: "no"
+    profiles:
+      - tools
+    command: >
+      sh -c "rm -rf /frontend-dist/assets /frontend-dist/fonts /frontend-dist/favicon.svg /frontend-dist/index.html && cp -r /usr/share/nginx/html/* /frontend-dist/"
+    volumes:
+      - ${FRONTEND_PUBLIC_DIR:-/var/www/nowmeow}:/frontend-dist
+
+  postgres:
+    image: postgres:15
+    container_name: nowmeow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nowmeow
+      POSTGRES_USER: nowmeow
+      POSTGRES_PASSWORD: nowmeow
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nowmeow"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: nowmeow-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  pgdata:
+  redisdata:

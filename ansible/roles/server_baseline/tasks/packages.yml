@@ -1,0 +1,20 @@
+- name: Full system update and upgrade
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: full
+  when: ansible_os_family == "Debian"
+  tags: skip_me
+
+- name: Install common packages
+  ansible.builtin.apt:
+    name:
+      - vim
+      - git
+      - curl
+      - htop
+      - ufw
+      - git
+      - net-tools
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"

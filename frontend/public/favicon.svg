@@ -1,0 +1,6 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Remote Access">
+  <rect width="128" height="128" rx="28" fill="#0f2a44"/>
+  <path d="M64 18 98 31v27c0 25-14 42-34 52-20-10-34-27-34-52V31l34-13Z" fill="#1f8a70"/>
+  <path d="M64 28 88 38v21c0 17-9 30-24 39-15-9-24-22-24-39V38l24-10Z" fill="#f5f9fc"/>
+  <path d="M57 67 47 57l-8 8 18 18 34-34-8-8-26 26Z" fill="#0f2a44"/>
+</svg>

@@ -1,0 +1,31 @@
+- name: Check if x-ui is already installed
+  ansible.builtin.stat:
+    path: /usr/local/x-ui/x-ui
+  register: xui_bin
+
+- name: Download 3x-ui installer
+  ansible.builtin.get_url:
+    url: "{{ xui_app_install_script_url }}"
+    dest: "{{ xui_app_install_script_path }}"
+    mode: '0755'
+  when:
+    - xui_app_manage_install | bool
+    - not xui_bin.stat.exists or xui_app_force_update | bool
+
+- name: Install or update 3x-ui (MHSanaei fork)
+  ansible.builtin.command:
+    cmd: "bash {{ xui_app_install_script_path }}"
+    stdin: "n\n"
+  register: xui_install_result
+  changed_when: true
+  when:
+    - xui_app_manage_install | bool
+    - not xui_bin.stat.exists or xui_app_force_update | bool
+
+- name: Remove downloaded 3x-ui installer
+  ansible.builtin.file:
+    path: "{{ xui_app_install_script_path }}"
+    state: absent
+  when:
+    - xui_app_manage_install | bool
+    - not xui_bin.stat.exists or xui_app_force_update | bool

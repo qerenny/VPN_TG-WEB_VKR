@@ -1,0 +1,31 @@
+- name: Apply Advanced Settings to SQLite DB (True Idempotency)
+  ansible.builtin.shell: |
+    CURRENT_VALUE=$(sqlite3 /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key='{{ item.key }}' LIMIT 1;")
+    TARGET_VALUE="{{ item.value }}"
+
+    if [ "$CURRENT_VALUE" != "$TARGET_VALUE" ]; then
+        # Удаляем все дубликаты этого ключа, если они есть
+        sqlite3 /etc/x-ui/x-ui.db "DELETE FROM settings WHERE key='{{ item.key }}';"
+        # Вставляем чистое новое значение
+        sqlite3 /etc/x-ui/x-ui.db "INSERT INTO settings (key, value) VALUES ('{{ item.key }}', '$TARGET_VALUE');"
+        echo "CHANGED"
+    fi
+  args:
+    executable: /bin/bash
+  register: db_update_result
+  changed_when: "'CHANGED' in db_update_result.stdout"
+  notify: Restart x-ui
+  loop:
+    - { key: 'webListen', value: "{{ xui_app_panel_bind_host }}" }
+    - { key: 'webDomain', value: "{{ domain_name }}" }
+    - { key: 'webCertFile', value: "{{ xui_app_cert_file }}" }
+    - { key: 'webKeyFile', value: "{{ xui_app_key_file }}" }
+
+    - { key: 'subEnable', value: 'true' }
+    - { key: 'subPort', value: "{{ xui_app_sub_port }}" }
+    - { key: 'subPath', value: "{{ xui_app_sub_path }}" }
+    - { key: 'subCertFile', value: "{{ xui_app_cert_file }}" }
+    - { key: 'subKeyFile', value: "{{ xui_app_key_file }}" }
+    - { key: 'subShowInfo', value: 'false' }
+    - { key: 'subEncrypt', value: 'false' }
+    - { key: 'subUpdates', value: '1' }

@@ -1,0 +1,123 @@
+---
+- name: Validate deployed stack
+  hosts: main_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  vars:
+    validate_stack_nginx_mode: "{{ nginx_proxy_mode | default('xver') }}"
+    validate_stack_vars_file: "{{ playbook_dir }}/secrets/{{ inventory_hostname }}_vars.yml"
+
+  pre_tasks:
+    - name: Check persisted 3x-ui variables file
+      delegate_to: localhost
+      become: false
+      ansible.builtin.stat:
+        path: "{{ validate_stack_vars_file }}"
+      register: validate_stack_vars_file_stat
+
+    - name: Fail when persisted 3x-ui variables are missing
+      ansible.builtin.fail:
+        msg: "Missing persisted vars file {{ validate_stack_vars_file }}. Validation requires the saved 3x-ui connection settings."
+      when: not validate_stack_vars_file_stat.stat.exists
+
+    - name: Load persisted 3x-ui variables
+      ansible.builtin.include_vars:
+        file: "{{ validate_stack_vars_file }}"
+
+  tasks:
+    - name: Wait for public HTTP port
+      delegate_to: localhost
+      become: false
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 80
+        state: started
+        timeout: 30
+
+    - name: Wait for public x-ui panel port
+      delegate_to: localhost
+      become: false
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ xui_app_web_port }}"
+        state: started
+        timeout: 30
+      when: xui_app_panel_access_mode | default('public') == 'public'
+
+    - name: Wait for local-only x-ui panel port
+      ansible.builtin.wait_for:
+        host: "127.0.0.1"
+        port: "{{ xui_app_web_port }}"
+        state: started
+        timeout: 30
+      when: xui_app_panel_access_mode | default('public') == 'tunnel-only'
+
+    - name: Wait for x-ui subscription port
+      delegate_to: localhost
+      become: false
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ xui_app_sub_port }}"
+        state: started
+        timeout: 30
+
+    - name: Wait for xver fallback port on remote host
+      ansible.builtin.wait_for:
+        host: "127.0.0.1"
+        port: "{{ nginx_proxy_fallback_port | default(8001) }}"
+        state: started
+        timeout: 30
+      when: validate_stack_nginx_mode == "xver"
+
+    - name: Wait for public HTTPS port in standard mask mode
+      delegate_to: localhost
+      become: false
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 443
+        state: started
+        timeout: 30
+      when: validate_stack_nginx_mode == "standard"
+
+    - name: Verify public x-ui login
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}login"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ xui_app_username }}"
+          password: "{{ xui_app_password }}"
+        status_code: 200
+        validate_certs: false
+      register: validate_stack_login
+      no_log: true
+      when: xui_app_panel_access_mode | default('public') == 'public'
+
+    - name: Verify local-only x-ui login
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ xui_app_web_port }}{{ xui_app_web_base_path }}login"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ xui_app_username }}"
+          password: "{{ xui_app_password }}"
+        status_code: 200
+        validate_certs: false
+      register: validate_stack_login
+      no_log: true
+      when: xui_app_panel_access_mode | default('public') == 'tunnel-only'
+
+    - name: Show validation result
+      ansible.builtin.debug:
+        msg:
+          - "HTTP 80 is reachable on {{ ansible_host }}"
+          - "Subscription port is reachable on {{ ansible_host }}"
+          - "Panel mode: {{ xui_app_panel_access_mode | default('public') }}"
+          - "Panel endpoint checked via {{ ansible_host if xui_app_panel_access_mode | default('public') == 'public' else '127.0.0.1' }}"
+          - "x-ui login check succeeded for {{ inventory_hostname }}"

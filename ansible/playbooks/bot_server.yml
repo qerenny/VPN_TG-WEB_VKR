@@ -1,0 +1,21 @@
+---
+- name: Prepare bot server after initial setup
+  hosts: bot_servers
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+
+  tasks:
+    - name: Setup Certbot and SSL
+      ansible.builtin.import_role:
+        name: certbot_setup
+      vars:
+        certbot_setup_post_hook_command: "systemctl start nginx || true"
+      tags: [ssl, certbot]
+
+    - name: Configure Nginx and optional GitHub access for bot host
+      ansible.builtin.import_role:
+        name: bot_server
+      tags: [nginx, bot, github]

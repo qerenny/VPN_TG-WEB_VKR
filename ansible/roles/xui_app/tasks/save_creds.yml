@@ -1,0 +1,80 @@
+---
+- name: Ensure secrets directory exists locally
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ xui_app_local_secrets_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Save credentials to local file
+  delegate_to: localhost
+  become: false
+  ansible.builtin.copy:
+    content: |
+      ========================================
+      SERVER: {{ inventory_hostname }} ({{ ansible_host }})
+      DOMAIN: {{ domain_name }}
+      DATE:   {{ ansible_date_time.iso8601 }}
+      ----------------------------------------
+      [PANEL ACCESS]
+      {% if xui_app_panel_access_mode == 'public' %}
+      Mode:              Public
+      URL:               https://{{ domain_name }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}
+      Public URL (IP):   https://{{ ansible_host }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}
+      {% else %}
+      Mode:              SSH tunnel only
+      SSH Port:          {{ server_baseline_ssh_port | default(ansible_port | default(22)) }}
+      Browser URL:       https://{{ domain_name }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}
+      Hosts Entry:       127.0.0.1 {{ domain_name }}
+      Tunnel Command:    autossh -M 0 -N -L {{ xui_app_web_port }}:127.0.0.1:{{ xui_app_web_port }} -i ~/.ssh/nowmeow_servers -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -p {{ server_baseline_ssh_port | default(ansible_port | default(22)) }} {{ ansible_user | default('Rune-Smith') }}@{{ ansible_host }}
+      SSH Config File:   {{ xui_app_local_secrets_dir }}/{{ inventory_hostname }}_xui_ssh_config
+      Note:              Open the Browser URL above after adding the Hosts Entry locally and starting the tunnel.
+      {% endif %}
+      Internal Port:     {{ xui_app_web_port }}
+      Username:          {{ xui_app_username }}
+      Password:          {{ xui_app_password }}
+      
+      [SUBSCRIPTION SETTINGS]
+      Sub Port:          {{ xui_app_sub_port }}
+      Sub Path:          {{ xui_app_sub_path }}
+      Sub URL:           https://{{ domain_name }}:{{ xui_app_sub_port }}{{ xui_app_sub_path }}
+      
+      [CERTS]
+      Cert: {{ xui_app_cert_file }}
+      Key:  {{ xui_app_key_file }}
+      ========================================
+    dest: "{{ xui_app_local_secrets_dir }}/{{ inventory_hostname }}_xui_creds.txt"
+    mode: '0600'
+  no_log: true
+
+- name: Save SSH tunnel config locally
+  delegate_to: localhost
+  become: false
+  ansible.builtin.copy:
+    dest: "{{ xui_app_local_secrets_dir }}/{{ inventory_hostname }}_xui_ssh_config"
+    mode: '0600'
+    content: |
+      Host {{ inventory_hostname }}-xui
+          HostName {{ ansible_host }}
+          User {{ ansible_user | default('Rune-Smith') }}
+          Port {{ server_baseline_ssh_port | default(ansible_port | default(22)) }}
+          IdentityFile ~/.ssh/nowmeow_servers
+          IdentitiesOnly yes
+          ServerAliveInterval 30
+          ServerAliveCountMax 3
+          ExitOnForwardFailure yes
+          StrictHostKeyChecking accept-new
+          LocalForward {{ xui_app_web_port }} 127.0.0.1:{{ xui_app_web_port }}
+  no_log: true
+  when: xui_app_panel_access_mode == 'tunnel-only'
+
+- name: Save hosts entry hint locally
+  delegate_to: localhost
+  become: false
+  ansible.builtin.copy:
+    dest: "{{ xui_app_local_secrets_dir }}/{{ inventory_hostname }}_xui_hosts_entry.txt"
+    mode: '0600'
+    content: |
+      127.0.0.1 {{ domain_name }}
+  when: xui_app_panel_access_mode == 'tunnel-only'

@@ -1,0 +1,23 @@
+# --- Установка и настройка Traffic Guard ---
+
+- name: Check if Traffic Guard is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/traffic-guard
+  register: tg_binary
+
+- name: Install Traffic Guard
+  ansible.builtin.shell:
+    cmd: "curl -fsSL https://raw.githubusercontent.com/dotX12/traffic-guard/master/install.sh | sudo bash"
+  when: not tg_binary.stat.exists
+  # Здесь нам больше не нужен creates, так как условие 'when' сработает раньше
+
+- name: Initialize and start Traffic Guard protection
+  ansible.builtin.shell:
+    cmd: >
+      traffic-guard full 
+      -u https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list 
+      -u https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/antiscanner.list 
+      --enable-logging
+  register: tg_result
+  changed_when: "'Applied' in tg_result.stdout or tg_result.rc == 0"
+  when: not tg_binary.stat.exists
