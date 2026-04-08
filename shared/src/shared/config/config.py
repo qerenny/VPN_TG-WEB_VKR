@@ -91,6 +91,36 @@ PRODUCT_REDIS_PREFIX = _config_text(_PRODUCT_CONFIG, "redis_prefix", "remote_acc
 PRODUCT_COOKIE_PREFIX = _config_text(_PRODUCT_CONFIG, "cookie_prefix", "remote_access")
 PRODUCT_PROFILE_TAG = _config_text(_PRODUCT_CONFIG, "profile_tag", "🔐")
 
+_FEATURES_CONFIG = _get_config_section("features")
+FEATURE_COMMERCE_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("commerce_enabled"),
+    default=True,
+)
+FEATURE_REFERRALS_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("referrals_enabled"),
+    default=True,
+)
+FEATURE_PROMOS_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("promos_enabled"),
+    default=True,
+)
+FEATURE_WEB_PURCHASE_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("web_purchase_enabled"),
+    default=True,
+)
+FEATURE_TELEGRAM_BOT_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("telegram_bot_enabled"),
+    default=True,
+)
+FEATURE_TELEGRAM_PROXY_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("telegram_proxy_enabled"),
+    default=False,
+)
+FEATURE_TRAFFIC_LIMITED_CONFIG_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("traffic_limited_config_enabled"),
+    default=True,
+)
+
 
 def _normalize_location_label(value, *, fallback: str) -> str:
     normalized = str(value or "").strip()
@@ -196,30 +226,37 @@ if not VPN_LOCATION_LABELS:
 INBOUND_AMOUNT_OF_DEVICES = config["inbound"]["amount_of_devices"]
 
 # ========== CRYPTOPAY ==========
-CRYPTOPAY_TOKEN = config["cryptopay"]["token"]
+CRYPTOPAY_TOKEN = _config_text(_get_config_section("cryptopay"), "token", "")
 
 # ========== YOOKASSA ==========
-CONFIGURATION_ACCOUNT_ID = config["yookassa"]["account_id"]
-CONFIGURATION_SECRET_KEY = config["yookassa"]["secret_key"]
+_YOOKASSA_CONFIG = _get_config_section("yookassa")
+CONFIGURATION_ACCOUNT_ID = _config_text(_YOOKASSA_CONFIG, "account_id", "")
+CONFIGURATION_SECRET_KEY = _config_text(_YOOKASSA_CONFIG, "secret_key", "")
 
 # ========== BOT ==========
-BOT_TG_ID = config["bot"]["tg_id"]
-BOT_API = config["bot"]["api"]
-BOT_ADMIN_IDS = json.loads(config["bot"]["admin_ids"])
+_BOT_CONFIG = _get_config_section("bot")
+BOT_TG_ID = _config_text(_BOT_CONFIG, "tg_id", "")
+BOT_API = _config_text(_BOT_CONFIG, "api", "")
+_BOT_ADMIN_IDS_RAW = _BOT_CONFIG.get("admin_ids", "[]")
+BOT_ADMIN_IDS = (
+    _BOT_ADMIN_IDS_RAW
+    if isinstance(_BOT_ADMIN_IDS_RAW, list)
+    else json.loads(str(_BOT_ADMIN_IDS_RAW))
+)
 BOT_MAINTENANCE_MODE = str(
-    config.get("bot", {}).get("maintenance_mode", False)
+    _BOT_CONFIG.get("maintenance_mode", False)
 ).strip().lower() in {"1", "true", "yes", "on"}
 BOT_MAINTENANCE_MESSAGE = str(
-    config.get("bot", {}).get(
+    _BOT_CONFIG.get(
         "maintenance_message",
         "Сейчас идут технические работы. Попробуйте немного позже.",
     )
 ).strip()
-BOT_BONUS_REFERRER_INT = config["bot"]["bonus_referrer"]
-BOT_BONUS_NEW_USER_INT = config["bot"]["bonus_new_user"]
-BOT_NEWS_TG_ID = config["bot"]["news_channel_id"]
-BOT_NEWS_USERNAME = config["bot"]["news_channel"]
-BOT_SUPPORT_TG_ID = config["bot"]["support"]
+BOT_BONUS_REFERRER_INT = int(_BOT_CONFIG.get("bonus_referrer", 0))
+BOT_BONUS_NEW_USER_INT = int(_BOT_CONFIG.get("bonus_new_user", 0))
+BOT_NEWS_TG_ID = _config_text(_BOT_CONFIG, "news_channel_id", "")
+BOT_NEWS_USERNAME = _config_text(_BOT_CONFIG, "news_channel", "")
+BOT_SUPPORT_TG_ID = _config_text(_BOT_CONFIG, "support", "")
 
 BOT_SUPPORT_TG_LINK = f"https://t.me/{BOT_SUPPORT_TG_ID}"
 BOT_RETURN_URL = f"https://t.me/{BOT_TG_ID}"
@@ -227,12 +264,13 @@ BOT_REFERRAL_LINK = f"https://t.me/{BOT_TG_ID}?start="
 BOT_NEWS_TG_LINK = f"https://t.me/{BOT_NEWS_USERNAME}"
 
 # ========== IMAGES ==========
-PHOTO_subscriptions = config["images"]["subscriptions"]
-PHOTO_instructions = config["images"]["instructions"]
-PHOTO_menu = config["images"]["menu"]
-PHOTO_my_subscription = config["images"]["my_subscription"]
-PHOTO_help = config["images"]["help"]
-PHOTO_referral_program = config["images"]["referral_program"]
+_IMAGES_CONFIG = _get_config_section("images")
+PHOTO_subscriptions = _config_text(_IMAGES_CONFIG, "subscriptions", "")
+PHOTO_instructions = _config_text(_IMAGES_CONFIG, "instructions", "")
+PHOTO_menu = _config_text(_IMAGES_CONFIG, "menu", "")
+PHOTO_my_subscription = _config_text(_IMAGES_CONFIG, "my_subscription", "")
+PHOTO_help = _config_text(_IMAGES_CONFIG, "help", "")
+PHOTO_referral_program = _config_text(_IMAGES_CONFIG, "referral_program", "")
 
 # ========== DATABASE ==========
 DB_NAME = config["db"]["name"]
@@ -541,6 +579,36 @@ WHITELIST_TRAFFIC_SYNC_INTERVAL_SECONDS = int(
 PAYMENT_WEBHOOK_TOKEN = str(
     config.get("payments", {}).get("webhook_token", "")
 ).strip()
+_PAYMENTS_CONFIG = _get_config_section("payments")
+PAYMENT_PROVIDER_CARD_CODE = _config_text(
+    _PAYMENTS_CONFIG,
+    "card_gateway_code",
+    "external_card",
+)
+PAYMENT_PROVIDER_CARD_LABEL = _config_text(
+    _PAYMENTS_CONFIG,
+    "card_gateway_label",
+    "Банковская карта",
+)
+PAYMENT_PROVIDER_WALLET_CODE = _config_text(
+    _PAYMENTS_CONFIG,
+    "wallet_gateway_code",
+    "external_wallet",
+)
+PAYMENT_PROVIDER_WALLET_LABEL = _config_text(
+    _PAYMENTS_CONFIG,
+    "wallet_gateway_label",
+    "Электронный кошелёк",
+)
+PAYMENT_DEMO_CHECKOUT_PATH = _config_text(
+    _PAYMENTS_CONFIG,
+    "demo_checkout_path",
+    "/demo-payment",
+)
+PAYMENT_DEMO_AUTO_PAID = _as_bool(
+    _PAYMENTS_CONFIG.get("demo_auto_paid"),
+    default=True,
+)
 
 # ========== JWT ==========
 JWT_SECRET = config["jwt"]["secret"]

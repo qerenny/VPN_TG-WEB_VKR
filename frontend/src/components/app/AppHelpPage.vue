@@ -15,6 +15,11 @@ const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 const loading = ref(true)
 const features = computed<FrontendFeatureFlags>(() => publicConfig.value.features || DEFAULT_FEATURE_FLAGS)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
+const telegramProxyAvailable = computed(
+  () => features.value.telegram_proxy_enabled && Boolean(publicConfig.value.telegram_proxy_url),
+)
+const appLinks = computed(() => publicConfig.value.app_links || {})
+const subscriptionClientName = computed(() => 'Happ')
 
 onMounted(async () => {
   loading.value = true
@@ -34,7 +39,7 @@ onMounted(async () => {
     <div class="cabinet-section__head">
       <p class="cabinet-kicker">Помощь</p>
       <h2 class="cabinet-title">Поддержка и установка</h2>
-      <p class="cabinet-copy">Скачайте приложение Happ для вашего устройства, добавьте подписку — и всё заработает.</p>
+      <p class="cabinet-copy">Скачайте приложение {{ subscriptionClientName }} для вашего устройства, добавьте подписку — и всё заработает.</p>
     </div>
 
     <!-- ═══ How it works ═══ -->
@@ -50,7 +55,7 @@ onMounted(async () => {
         <div class="step">
           <span class="step__num">1</span>
           <div>
-            <p class="step__title">Скачайте Happ</p>
+            <p class="step__title">Скачайте {{ subscriptionClientName }}</p>
             <p class="step__desc">Выберите версию для вашего устройства ниже.</p>
           </div>
         </div>
@@ -65,8 +70,8 @@ onMounted(async () => {
         <div class="step">
           <span class="step__num">3</span>
           <div>
-            <p class="step__title">Добавьте подписку в Happ</p>
-            <p class="step__desc">На странице <RouterLink to="/app/subscriptions" class="step__link">Подписки</RouterLink> нажмите «Добавить в Happ» или скопируйте ссылку вручную.</p>
+            <p class="step__title">Добавьте подписку в {{ subscriptionClientName }}</p>
+            <p class="step__desc">На странице <RouterLink to="/app/subscriptions" class="step__link">Подписки</RouterLink> нажмите кнопку импорта или скопируйте ссылку вручную.</p>
           </div>
         </div>
       </div>
@@ -78,7 +83,7 @@ onMounted(async () => {
         <span class="material-symbols-outlined help-card__head-icon">download</span>
         <div class="cabinet-section__head">
           <p class="cabinet-kicker">Установка</p>
-          <h3 class="cabinet-subtitle">Скачать Happ</h3>
+          <h3 class="cabinet-subtitle">Скачать {{ subscriptionClientName }}</h3>
         </div>
       </div>
 
@@ -94,7 +99,7 @@ onMounted(async () => {
             <strong class="happ-tile__title">App Store</strong>
             <span class="happ-tile__label">World</span>
           </a>
-          <a class="happ-tile" href="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_ios || 'https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">App Store</strong>
             <span class="happ-tile__label">Россия</span>
@@ -109,7 +114,7 @@ onMounted(async () => {
           <h4 class="happ-group__title">Android</h4>
         </div>
         <div class="happ-row">
-          <a class="happ-tile" href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_android || 'https://play.google.com/store/apps/details?id=com.happproxy'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">Google Play</strong>
             <span class="happ-tile__label">Play Market</span>
@@ -129,17 +134,17 @@ onMounted(async () => {
           <h4 class="happ-group__title">Компьютеры</h4>
         </div>
         <div class="happ-row">
-          <a class="happ-tile" href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_windows || 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">desktop_windows</span>
             <strong class="happ-tile__title">Windows</strong>
             <span class="happ-tile__label">x64 .exe</span>
           </a>
-          <a class="happ-tile" href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_macos || 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">laptop_mac</span>
             <strong class="happ-tile__title">macOS</strong>
             <span class="happ-tile__label">DMG Universal</span>
           </a>
-          <a class="happ-tile" href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_linux || 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">terminal</span>
             <strong class="happ-tile__title">Linux DEB</strong>
             <span class="happ-tile__label">Ubuntu / Debian</span>
@@ -197,7 +202,7 @@ onMounted(async () => {
             <p class="help-link__desc">Напиши, если есть вопросы</p>
           </div>
         </a>
-        <RouterLink v-if="publicConfig?.telegram_proxy_url" class="help-link" to="/proxy">
+        <RouterLink v-if="telegramProxyAvailable" class="help-link" to="/proxy">
           <span class="material-symbols-outlined help-link__icon">vpn_lock</span>
           <div>
             <p class="help-link__title">Proxy для Telegram</p>

@@ -51,7 +51,7 @@ from telegram_bot.presentation.subscriptions.subscription_trial_handler import (
 )
 from telegram_bot.presentation.support.support_handler import SupportHandler
 from telegram_bot.presentation.users.profile_handler import ProfileHandler
-from telegram_bot.services.payments.cryptopay_service import CryptoPayService
+from telegram_bot.services.payments.demo_payment_gateway import build_demo_payment_gateways
 from telegram_bot.services.payments.payment_fulfillment_service import (
     PaymentFulfillmentService,
 )
@@ -63,7 +63,6 @@ from telegram_bot.services.payments.payment_status_update_service import (
     PaymentStatusChecker,
 )
 from telegram_bot.services.linking.telegram_link_service import TelegramLinkService
-from telegram_bot.services.payments.yookassa_service import YooKassaService
 from telegram_bot.services.referrals.referral_bonus_service import ReferralBonusService
 from telegram_bot.services.referrals.referral_registration_service import (
     ReferralRegistrationService,
@@ -249,6 +248,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         repo=user_repository,
         subscription_service=user_subscription_service,
         telegram_link_service=telegram_link_service,
+        referrals_enabled=product_features.referrals_enabled,
     )
     profile_handler = ProfileHandler(
         repo=user_repository,
@@ -260,6 +260,8 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
     subscription_menu_handler = SubscriptionMenuHandler(
         repo=user_repository,
         whitelist_traffic_service=whitelist_traffic_service,
+        commerce_enabled=product_features.commerce_enabled,
+        traffic_limited_config_enabled=product_features.traffic_limited_config_enabled,
     )
     subscription_trial_handler = SubscriptionTrialHandler(
         subscription_flow_service=subscription_flow_service,
@@ -282,15 +284,14 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         sync_service=growth_sync_service,
     )
 
-    yookassa_service = YooKassaService(uuid=uuid_generator)
-    cryptopay_service = CryptoPayService()
+    payment_gateways = build_demo_payment_gateways(uuid_generator)
     payment_command_handler = PaymentCommandHandler(
-        gateways={
-            "yookassa": yookassa_service,
-            "cryptopay": cryptopay_service,
-        },
+        gateways=payment_gateways,
         repo=payment_repository,
         timestamp=timestamp_utils,
+        gateway_labels={
+            method: gateway.label for method, gateway in payment_gateways.items()
+        },
     )
 
     reminder_redis_client = _build_redis_client(
@@ -350,8 +351,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
     )
     payment_status_checker = PaymentStatusChecker(
         repo=payment_repository,
-        yookassa=yookassa_service,
-        cryptopay=cryptopay_service,
+        gateways=payment_gateways,
         payment_fulfillment_service=payment_fulfillment_service,
         scan_interval_seconds=runtime_settings.payments.status_scan_interval_seconds,
         sync_service=payment_sync_service,

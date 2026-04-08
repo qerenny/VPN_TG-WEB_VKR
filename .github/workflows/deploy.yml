@@ -1,4 +1,4 @@
-name: Deploy NowMeow 
+name: Deploy Remote Access Service
 
 on:
   workflow_run:
@@ -29,11 +29,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: 🛠 Modify start_handler.py (Production Logic)
-        run: |
-          sed -i '/markup\.add.*FRONT_PROFILE/s/^\([[:space:]]*\)#\([[:space:]]*\)/\1\2/' telegram_bot/src/telegram_bot/presentation/start/start_handler.py
-          sed -i '/text[[:space:]]*+=[[:space:]]*f"\\n```{link}```"/s/^\([[:space:]]*\)/\1# /' telegram_bot/src/telegram_bot/presentation/start/start_handler.py
 
       - name: 📄 Create production_env.yaml for Frontend Build
         env:
@@ -229,14 +224,14 @@ jobs:
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
 
-            BACKUP_ROOT="$HOME/nowmeow-backups"
+            BACKUP_ROOT="$HOME/remote-access-backups"
             BACKUP_TS="$(date +%Y%m%d-%H%M%S)"
             BACKUP_DIR="$BACKUP_ROOT/$BACKUP_TS"
 
             mkdir -p "$BACKUP_DIR"
 
-            if [ -d "$HOME/nowmeow" ]; then
-              cd "$HOME/nowmeow"
+            if [ -d "$HOME/remote-access-service" ]; then
+              cd "$HOME/remote-access-service"
 
               cp -v docker-compose.yml "$BACKUP_DIR/docker-compose.yml" >/dev/null 2>&1 || true
               cp -v .env "$BACKUP_DIR/.env" >/dev/null 2>&1 || true
@@ -248,12 +243,12 @@ jobs:
               docker compose logs --tail=300 postgres redis backend telegram_bot > "$BACKUP_DIR/compose-logs.txt" 2>/dev/null || true
 
               if docker compose ps --status running --services 2>/dev/null | grep -qx "postgres"; then
-                docker compose exec -T postgres pg_dump -U nowmeow -d nowmeow -Fc > "$BACKUP_DIR/postgres.dump"
+                docker compose exec -T postgres sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$BACKUP_DIR/postgres.dump"
               else
                 echo "postgres is not running; skipped pg_dump" > "$BACKUP_DIR/postgres-backup-status.txt"
               fi
             else
-              echo "$HOME/nowmeow does not exist yet; skipped backup" > "$BACKUP_DIR/backup-status.txt"
+              echo "$HOME/remote-access-service does not exist yet; skipped backup" > "$BACKUP_DIR/backup-status.txt"
             fi
 
             echo "Created backup at $BACKUP_DIR"
@@ -265,22 +260,22 @@ jobs:
 
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
-            mkdir -p "$HOME/nowmeow/docker/xray" "$HOME/nowmeow/.deploy-staging"
-            cd "$HOME/nowmeow"
+            mkdir -p "$HOME/remote-access-service/docker/xray" "$HOME/remote-access-service/.deploy-staging"
+            cd "$HOME/remote-access-service"
           EOF
 
           # Copy compose + generated config files into staging first
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" docker-compose.prod.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/nowmeow/.deploy-staging/docker-compose.yml
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" docker/xray/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/nowmeow/docker/xray/
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/nowmeow/.deploy-staging/.env
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" production_env.yaml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/nowmeow/.deploy-staging/production_env.yaml
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" frontend.env.production ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/nowmeow/.deploy-staging/frontend.env.production
+          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" docker-compose.prod.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/docker-compose.yml
+          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" docker/xray/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/docker/xray/
+          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/.env
+          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" production_env.yaml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/production_env.yaml
+          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" frontend.env.production ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/frontend.env.production
 
           # Connect and Deploy
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
 
-            cd ~/nowmeow
+            cd ~/remote-access-service
             DEPLOY_STARTED_AT="$(date -Iseconds)"
 
             install_staged_file() {
@@ -331,10 +326,10 @@ jobs:
               echo "Deploy diagnostics (failure snapshot):"
               echo "Failed command: ${BASH_COMMAND:-unknown}"
               docker compose ps -a || true
-            docker compose logs --since "$DEPLOY_STARTED_AT" --tail=200 postgres redis backend telegram_bot || true
-              if docker ps -a --format '{{.Names}}' | grep -qx 'nowmeow-alembic-once'; then
+              docker compose logs --since "$DEPLOY_STARTED_AT" --tail=200 postgres redis backend telegram_bot || true
+              if [ -n "${ALEMBIC_CONTAINER_NAME:-}" ] && docker ps -a --format '{{.Names}}' | grep -qx "$ALEMBIC_CONTAINER_NAME"; then
                 echo "Alembic one-off logs:"
-                docker logs nowmeow-alembic-once || true
+                docker logs "$ALEMBIC_CONTAINER_NAME" || true
               fi
             }
             trap diagnostics ERR
@@ -352,7 +347,12 @@ jobs:
 
             # Export environment for Docker Compose
             test -f .env
+            set -a
+            . ./.env
+            set +a
             export IMAGE_PREFIX=${{ env.IMAGE_PREFIX }}
+            CONTAINER_PREFIX="${CONTAINER_PREFIX:-remote-access}"
+            ALEMBIC_CONTAINER_NAME="${CONTAINER_PREFIX}-alembic-once"
 
             # Login to GHCR (PAT preferred; fallback to github.token; otherwise rely on existing server login)
             GHCR_USER="${{ secrets.GHCR_USERNAME }}"
@@ -389,16 +389,16 @@ jobs:
 
             # Ensure infra is healthy before continuing
             docker compose ps
-            wait_for_container_health nowmeow-postgres 120
-            wait_for_container_health nowmeow-redis 120
+            wait_for_container_health "${CONTAINER_PREFIX}-postgres" 120
+            wait_for_container_health "${CONTAINER_PREFIX}-redis" 120
 
             # Cleanup stale one-off migration containers from interrupted runs
-            docker ps -aq --filter "name=nowmeow-alembic-run-" | xargs -r docker rm -f >/dev/null 2>&1 || true
+            docker ps -aq --filter "name=${CONTAINER_PREFIX}-alembic-run-" | xargs -r docker rm -f >/dev/null 2>&1 || true
 
             echo "[deploy] Run migrations"
             # Run migrations before app startup
-            docker rm -f nowmeow-alembic-once >/dev/null 2>&1 || true
-            ALEMBIC_CID="$(docker compose --profile tools run -d --name nowmeow-alembic-once alembic sh -lc 'cd /app && alembic current && alembic upgrade head && alembic current')"
+            docker rm -f "$ALEMBIC_CONTAINER_NAME" >/dev/null 2>&1 || true
+            ALEMBIC_CID="$(docker compose --profile tools run -d --name "$ALEMBIC_CONTAINER_NAME" alembic sh -lc 'cd /app && alembic current && alembic upgrade head && alembic current')"
             if ! timeout -k 10s 300s docker wait "$ALEMBIC_CID" > /tmp/alembic-exit-code; then
               echo "Alembic timed out. Container logs:"
               docker logs "$ALEMBIC_CID" || true
@@ -412,9 +412,9 @@ jobs:
               echo "Alembic failed. Last postgres logs:"
               docker compose logs --tail=200 postgres || true
               echo "Postgres activity snapshot:"
-              docker compose exec -T postgres psql -U nowmeow -d nowmeow -c "select pid, usename, state, wait_event_type, wait_event, left(query, 140) as query from pg_stat_activity where datname='nowmeow' order by pid;" || true
+              docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select pid, usename, state, wait_event_type, wait_event, left(query, 140) as query from pg_stat_activity where datname=current_database() order by pid;"' || true
               echo "Postgres lock snapshot:"
-              docker compose exec -T postgres psql -U nowmeow -d nowmeow -c "select locktype, mode, granted, pid, relation::regclass from pg_locks where database = (select oid from pg_database where datname='nowmeow') order by granted, pid;" || true
+              docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select locktype, mode, granted, pid, relation::regclass from pg_locks where database = (select oid from pg_database where datname=current_database()) order by granted, pid;"' || true
               exit 1
             fi
             echo "[deploy] Migrations completed"
@@ -439,7 +439,7 @@ jobs:
 
             echo "[deploy] Build frontend dist"
             # Update Frontend Files
-            sudo mkdir -p /var/www/nowmeow
+            sudo mkdir -p /var/www/remote-access-service
             docker compose --profile tools run --rm frontend
 
             echo "[deploy] Services snapshot"

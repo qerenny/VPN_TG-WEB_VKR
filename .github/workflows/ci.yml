@@ -39,8 +39,8 @@ jobs:
             echo "::error::Docker images must not bake environment YAML files into the image."
             exit 1
           fi
-          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
-          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
+          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
+          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
           docker compose config --services >/dev/null
           docker compose -f docker-compose.prod.yml config --services >/dev/null
 
@@ -88,13 +88,13 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_DB: nowmeow_integration
-          POSTGRES_USER: nowmeow
-          POSTGRES_PASSWORD: nowmeow
+          POSTGRES_DB: remote_access_integration
+          POSTGRES_USER: remote_access
+          POSTGRES_PASSWORD: remote_access
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U nowmeow -d nowmeow_integration"
+          --health-cmd "pg_isready -U remote_access -d remote_access_integration"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -135,13 +135,13 @@ jobs:
             echo "::error::Docker images must not bake environment YAML files into the image."
             exit 1
           fi
-          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
-          grep -nE 'NOWMEOW_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
+          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
+          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
           docker compose config --services >/dev/null
           docker compose -f docker-compose.prod.yml config --services >/dev/null
 
       - name: Run integration smoke tests
         env:
-          NOWMEOW_RUN_INTEGRATION: "1"
-          NOWMEOW_CONFIG_PATH: ${{ github.workspace }}/tests/integration/env.ci.yaml
+          APP_RUN_INTEGRATION: "1"
+          APP_CONFIG_PATH: ${{ github.workspace }}/tests/integration/env.ci.yaml
         run: pytest -q -m integration tests/integration

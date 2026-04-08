@@ -32,9 +32,13 @@ class SubscriptionMenuHandler:
         self,
         repo: TelegramUserRepository,
         whitelist_traffic_service: WhiteListTrafficService | None = None,
+        commerce_enabled: bool = True,
+        traffic_limited_config_enabled: bool = True,
     ):
         self.repo = repo
         self.whitelist_traffic_service = whitelist_traffic_service
+        self.commerce_enabled = commerce_enabled
+        self.traffic_limited_config_enabled = traffic_limited_config_enabled
 
     async def show_subscription_menu(self, call: CallbackQuery) -> None:
         """
@@ -55,11 +59,13 @@ class SubscriptionMenuHandler:
         #         callback_data="sub_news_channel_menu"
         #     ))
 
-        markup.add(types.InlineKeyboardButton(MONTH1["label"], callback_data="sub_month1"),
-                   types.InlineKeyboardButton(MONTH3["label"], callback_data="sub_month3"))
-        markup.add(types.InlineKeyboardButton(MONTH6["label"], callback_data="sub_month6"),
-                   types.InlineKeyboardButton(YEAR1["label"], callback_data="sub_year1"))
-        markup.add(types.InlineKeyboardButton(WHITELIST_ACCESS, callback_data="sub_whitelist_menu"))
+        if self.commerce_enabled:
+            markup.add(types.InlineKeyboardButton(MONTH1["label"], callback_data="sub_month1"),
+                       types.InlineKeyboardButton(MONTH3["label"], callback_data="sub_month3"))
+            markup.add(types.InlineKeyboardButton(MONTH6["label"], callback_data="sub_month6"),
+                       types.InlineKeyboardButton(YEAR1["label"], callback_data="sub_year1"))
+        if self.traffic_limited_config_enabled:
+            markup.add(types.InlineKeyboardButton(WHITELIST_ACCESS, callback_data="sub_whitelist_menu"))
         markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
 
         await render_photo_menu(
@@ -76,17 +82,25 @@ class SubscriptionMenuHandler:
         tg_id = call.message.chat.id
         text = self._build_whitelist_purchase_text()
         markup = types.InlineKeyboardMarkup()
+        if not self.traffic_limited_config_enabled:
+            await bot.answer_callback_query(
+                call.id,
+                "Конфигурации с лимитом трафика отключены.",
+                show_alert=True,
+            )
+            return
         if await self._should_show_whitelist_trial(int(tg_id)):
             markup.add(
                 types.InlineKeyboardButton(WHITELIST_TRIAL, callback_data="sub_whitelist_trial")
             )
-        markup.add(
-            types.InlineKeyboardButton(WHITELIST15GB["label"], callback_data="sub_whitelist15gb"),
-            types.InlineKeyboardButton(WHITELIST35GB["label"], callback_data="sub_whitelist35gb"),
-        )
-        markup.add(
-            types.InlineKeyboardButton(WHITELIST80GB["label"], callback_data="sub_whitelist80gb")
-        )
+        if self.commerce_enabled:
+            markup.add(
+                types.InlineKeyboardButton(WHITELIST15GB["label"], callback_data="sub_whitelist15gb"),
+                types.InlineKeyboardButton(WHITELIST35GB["label"], callback_data="sub_whitelist35gb"),
+            )
+            markup.add(
+                types.InlineKeyboardButton(WHITELIST80GB["label"], callback_data="sub_whitelist80gb")
+            )
         markup.add(
             types.InlineKeyboardButton(BACK_TO_SUBSCRIPTIONS, callback_data="profile_subscriptions")
         )

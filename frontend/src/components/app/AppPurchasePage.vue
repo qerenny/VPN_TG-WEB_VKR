@@ -15,6 +15,7 @@ import {
   createEmptyPublicConfig,
   fetchPublicConfig,
   type FrontendFeatureFlags,
+  type FrontendPublicConfig,
 } from '../../api/publicConfig'
 import { formatMoney } from '../../utils/format'
 
@@ -26,10 +27,14 @@ const selectedScope = ref<'standard' | 'whitelist' | null>(null)
 const selectedPlanCode = ref<string | null>(null)
 const showConfirmModal = ref(false)
 const features = ref<FrontendFeatureFlags>({ ...DEFAULT_FEATURE_FLAGS })
+const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 
 const standardPlans = computed(() => catalog.value?.standard || [])
-const whitelistPlans = computed(() => catalog.value?.whitelist || [])
+const whitelistPlans = computed(() => (
+  features.value.traffic_limited_config_enabled ? catalog.value?.whitelist || [] : []
+))
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
+const primaryPaymentMethod = computed(() => publicConfig.value.payment_methods?.primary || 'external_card')
 const selectedPlan = computed(() => {
   if (!selectedScope.value || !selectedPlanCode.value) {
     return null
@@ -43,7 +48,9 @@ async function openCheckout(scope: 'standard' | 'whitelist', planCode: string) {
   checkoutLoadingCode.value = planCode
   try {
     const result =
-      scope === 'standard' ? await createStandardCheckout(planCode) : await createWhitelistCheckout(planCode)
+      scope === 'standard'
+        ? await createStandardCheckout(planCode, primaryPaymentMethod.value)
+        : await createWhitelistCheckout(planCode, primaryPaymentMethod.value)
 
     if (!result?.checkout_url) {
       throw new Error('Checkout URL is missing')
@@ -108,7 +115,8 @@ async function proceedToCheckout() {
 onMounted(async () => {
   loading.value = true
   try {
-    features.value = (await fetchPublicConfig().catch(() => createEmptyPublicConfig())).features
+    publicConfig.value = await fetchPublicConfig().catch(() => createEmptyPublicConfig())
+    features.value = publicConfig.value.features
     if (!webPurchaseEnabled.value) {
       catalog.value = null
       return
@@ -184,7 +192,7 @@ onMounted(async () => {
       </article>
 
       <!-- Whitelist second -->
-      <article class="glass-card cabinet-panel purchase-card purchase-card--whitelist">
+      <article v-if="features.traffic_limited_config_enabled" class="glass-card cabinet-panel purchase-card purchase-card--whitelist">
         <div class="purchase-card__head">
           <span class="material-symbols-outlined purchase-card__icon purchase-card__icon--blue">shield</span>
           <div class="cabinet-section__head">

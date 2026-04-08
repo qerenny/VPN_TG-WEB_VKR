@@ -14,6 +14,7 @@ import AppPurchasePage from '../components/app/AppPurchasePage.vue'
 import AppHelpPage from '../components/app/AppHelpPage.vue'
 import AppProfilePage from '../components/app/AppProfilePage.vue'
 import AppPaymentsPage from '../components/app/AppPaymentsPage.vue'
+import DemoPaymentPage from '../components/app/DemoPaymentPage.vue'
 import { ensureSession } from '../stores/session'
 
 const adminPathSegment = String(import.meta.env.VITE_ADMIN_PATH || '')
@@ -38,6 +39,12 @@ const routes = [
     alias: ['/proxy/'],
     name: 'ProxyAccess',
     component: ProxyAccess
+  },
+  {
+    path: '/demo-payment',
+    alias: ['/demo-payment/'],
+    name: 'DemoPayment',
+    component: DemoPaymentPage
   },
   {
     path: '/',

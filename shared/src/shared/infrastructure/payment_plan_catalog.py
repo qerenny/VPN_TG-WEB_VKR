@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from functools import lru_cache
 
+from shared.config.config import _as_bool, config
 from shared.constants.payments import PLAN_KIND_BONUS, PLAN_KIND_PAID, PLAN_KIND_TRIAL
 from shared.product_constants import (
     ENTITLEMENT_KIND_TIME,
@@ -154,17 +156,67 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
     ),
 )
 
-PLAN_BY_CODE = {seed.code: seed for seed in DEFAULT_PLAN_SEEDS}
-PLAN_BY_LEGACY_PAYLOAD = {seed.legacy_payload: seed for seed in DEFAULT_PLAN_SEEDS}
+
+def _decimal_or_none(value) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    return Decimal(str(value))
+
+
+def _int_or_none(value) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def _plan_seed_from_mapping(raw: dict) -> PlanSeed:
+    return PlanSeed(
+        code=str(raw["code"]).strip().lower(),
+        legacy_payload=str(raw.get("legacy_payload", raw["code"])).strip().lower(),
+        name=str(raw["name"]).strip(),
+        kind=str(raw.get("kind", PLAN_KIND_PAID)).strip().lower(),
+        scope=str(raw.get("scope", PRODUCT_SCOPE_STANDARD)).strip().lower(),
+        entitlement_kind=str(raw.get("entitlement_kind", ENTITLEMENT_KIND_TIME)).strip().lower(),
+        duration_days=int(raw.get("duration_days", 0)),
+        quota_bytes=_int_or_none(raw.get("quota_bytes")),
+        price_amount=_decimal_or_none(raw.get("price_amount")),
+        currency=(
+            str(raw.get("currency")).strip()
+            if raw.get("currency") not in {None, ""}
+            else None
+        ),
+        is_active=_as_bool(raw.get("is_active"), default=True),
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_plan_seeds() -> tuple[PlanSeed, ...]:
+    raw_plans = config.get("plans", [])
+    if not isinstance(raw_plans, list) or not raw_plans:
+        return DEFAULT_PLAN_SEEDS
+
+    seeds: list[PlanSeed] = []
+    for raw in raw_plans:
+        if isinstance(raw, dict):
+            seeds.append(_plan_seed_from_mapping(raw))
+    return tuple(seeds) or DEFAULT_PLAN_SEEDS
 
 
 def get_plan_seed_by_legacy_payload(legacy_payload: str) -> PlanSeed | None:
-    return PLAN_BY_LEGACY_PAYLOAD.get(str(legacy_payload).strip().lower())
+    normalized = str(legacy_payload).strip().lower()
+    return {
+        seed.legacy_payload: seed
+        for seed in _load_plan_seeds()
+    }.get(normalized)
 
 
 def get_plan_seed_by_code(code: str) -> PlanSeed | None:
-    return PLAN_BY_CODE.get(str(code).strip().lower())
+    normalized = str(code).strip().lower()
+    return {
+        seed.code: seed
+        for seed in _load_plan_seeds()
+    }.get(normalized)
 
 
 def iter_default_plan_seeds() -> tuple[PlanSeed, ...]:
-    return DEFAULT_PLAN_SEEDS
+    return _load_plan_seeds()

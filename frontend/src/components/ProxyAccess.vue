@@ -7,7 +7,12 @@ import { createEmptyPublicConfig, fetchPublicConfig, type FrontendPublicConfig }
 const toast = useToast()
 const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 
-const rawProxyUrl = computed(() => String(publicConfig.value?.telegram_proxy_url || '').trim())
+const rawProxyUrl = computed(() => {
+  if (!publicConfig.value?.features.telegram_proxy_enabled) {
+    return ''
+  }
+  return String(publicConfig.value?.telegram_proxy_url || '').trim()
+})
 
 const buildWebProxyUrl = (value: string) => {
   if (!value) {

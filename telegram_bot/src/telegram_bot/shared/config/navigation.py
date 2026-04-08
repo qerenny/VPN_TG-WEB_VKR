@@ -7,7 +7,7 @@ from shared.config.config import (
 HELP = "📞 Поддержка"
 INSTRUCTIONS = "⚙️ Помощь"
 INSTRUCTIONS_DEVICES = "📱 Инструкции по установке"
-REFERRALS = "🎁 Реферальная программа"
+REFERRALS = "🎁 Приглашения"
 SUBSCRIPTIONS = "🔐 Получить доступ"
 MAIN_MENU = "🏠 В главное меню"
 FAQ = "❓ Часто задаваемые вопросы"

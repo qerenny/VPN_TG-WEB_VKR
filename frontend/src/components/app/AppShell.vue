@@ -3,7 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
 
-import { DEFAULT_FEATURE_FLAGS, fetchPublicConfig, type FrontendFeatureFlags } from '../../api/publicConfig'
+import {
+  DEFAULT_FEATURE_FLAGS,
+  DEFAULT_PRODUCT_CONFIG,
+  fetchPublicConfig,
+  type FrontendFeatureFlags,
+  type FrontendProductConfig,
+} from '../../api/publicConfig'
 import { clearSession, useSessionState } from '../../stores/session'
 
 const route = useRoute()
@@ -11,6 +17,7 @@ const router = useRouter()
 const toast = useToast()
 const session = useSessionState()
 const features = ref<FrontendFeatureFlags>({ ...DEFAULT_FEATURE_FLAGS })
+const product = ref<FrontendProductConfig>({ ...DEFAULT_PRODUCT_CONFIG, docs_links: {} })
 
 const commerceEnabled = computed(() => features.value.commerce_enabled)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
@@ -40,7 +47,10 @@ async function logout() {
 
 onMounted(async () => {
   try {
-    features.value = (await fetchPublicConfig()).features
+    const publicConfig = await fetchPublicConfig()
+    features.value = publicConfig.features
+    product.value = publicConfig.product
+    document.title = publicConfig.product.name
   } catch {
     features.value = { ...DEFAULT_FEATURE_FLAGS }
   }
@@ -66,7 +76,7 @@ onMounted(async () => {
           <img src="/favicon.svg" alt="Логотип сервиса" class="cabinet-header__logo" />
           <div class="cabinet-header__intro">
             <h1 class="cabinet-header__title">
-              <span class="brand-title cabinet-header__brand-text">Remote Access</span>
+              <span class="brand-title cabinet-header__brand-text">{{ product.short_name }}</span>
               <span class="cabinet-header__name">{{ displayName }}</span>
             </h1>
             <p class="cabinet-header__lead">Конфигурации доступа, подключение и профиль</p>

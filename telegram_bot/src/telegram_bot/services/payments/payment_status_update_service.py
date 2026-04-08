@@ -13,11 +13,10 @@ from shared.infrastructure.payments.payment_repository import (
     PaymentSnapshot,
 )
 from shared.utils.logging_utils import logger, log_with_throttle
-from telegram_bot.services.payments.cryptopay_service import CryptoPayService
 from telegram_bot.services.payments.payment_fulfillment_service import (
     PaymentFulfillmentService,
 )
-from telegram_bot.services.payments.yookassa_service import YooKassaService
+from telegram_bot.services.payments.payment_gateway import PaymentGateway
 
 PAID_STATUSES = PROVIDER_STATUS_PAID
 TERMINAL_UNPAID_STATUSES = PROVIDER_STATUS_CANCELED | PROVIDER_STATUS_FAILED
@@ -49,15 +48,24 @@ class PaymentStatusChecker:
     def __init__(
         self,
         repo: PaymentRepository,
-        yookassa: YooKassaService,
-        cryptopay: CryptoPayService,
         payment_fulfillment_service: PaymentFulfillmentService,
+        gateways: dict[str, PaymentGateway] | None = None,
+        yookassa: PaymentGateway | None = None,
+        cryptopay: PaymentGateway | None = None,
         scan_interval_seconds: int = PAYMENT_STATUS_SCAN_INTERVAL_SECONDS,
         sync_service=None,
     ):
         self.repo = repo
-        self.yookassa = yookassa
-        self.cryptopay = cryptopay
+        self.gateways: dict[str, PaymentGateway] = {
+            str(key).strip().lower(): value
+            for key, value in (gateways or {}).items()
+        }
+        if yookassa is not None:
+            self.gateways.setdefault("yookassa", yookassa)
+        if cryptopay is not None:
+            self.gateways.setdefault("cryptopay", cryptopay)
+        self.yookassa = self.gateways.get("yookassa")
+        self.cryptopay = self.gateways.get("cryptopay")
         self.payment_fulfillment_service = payment_fulfillment_service
         self.scan_interval_seconds = scan_interval_seconds
 
@@ -115,17 +123,20 @@ class PaymentStatusChecker:
                 continue
 
             try:
-                if method == "cryptopay":
-                    tasks.append(self.cryptopay.find_payment_status(int(str(payment_id))))
-                    valid_payments_for_check.append(payment)
-                elif method == "yookassa":
-                    tasks.append(self.yookassa.find_payment_status(str(payment_id)))
-                    valid_payments_for_check.append(payment)
-                else:
+                method_key = str(method).strip().lower()
+                gateway = self.gateways.get(method_key)
+                if gateway is None:
                     logger.error(
                         f"Unsupported payment method: {method} for payment {payment_id}"
                     )
                     continue
+                lookup_payment_id = (
+                    int(str(payment_id))
+                    if method_key == "cryptopay"
+                    else str(payment_id)
+                )
+                tasks.append(gateway.find_payment_status(lookup_payment_id))
+                valid_payments_for_check.append(payment)
             except Exception as e:
                 logger.error(f"Error preparing task for payment {payment_id}: {e}")
                 continue

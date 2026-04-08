@@ -84,7 +84,7 @@ http {
         
         # Subscription backend
         location {{ nginx_proxy_subscription_web_base_path }} {
-            add_header Profile-Title "NowMeow VPN";
+            add_header Profile-Title "{{ nginx_proxy_profile_title }}";
             proxy_pass http://127.0.0.1:{{ nginx_proxy_subscription_backend_port }}; 
             
             proxy_set_header Host $host;

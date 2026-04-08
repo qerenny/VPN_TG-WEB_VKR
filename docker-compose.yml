@@ -3,7 +3,7 @@ services:
     build:
       context: ./docker/xray
       dockerfile: Dockerfile
-    container_name: nowmeow-xray
+    container_name: ${CONTAINER_PREFIX:-remote-access}-xray
     restart: unless-stopped
     profiles:
       - proxy
@@ -12,25 +12,25 @@ services:
 
   postgres:
     image: postgres:15
-    container_name: nowmeow-postgres
+    container_name: ${CONTAINER_PREFIX:-remote-access}-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: nowmeow
-      POSTGRES_USER: nowmeow
-      POSTGRES_PASSWORD: nowmeow
+      POSTGRES_DB: ${POSTGRES_DB:-remote_access}
+      POSTGRES_USER: ${POSTGRES_USER:-remote_access}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nowmeow"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-remote_access} -d $${POSTGRES_DB:-remote_access}"]
       interval: 10s 
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: nowmeow-redis
+    container_name: ${CONTAINER_PREFIX:-remote-access}-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -44,10 +44,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: nowmeow-backend
+    container_name: ${CONTAINER_PREFIX:-remote-access}-backend
     restart: unless-stopped
     environment:
-      NOWMEOW_CONFIG_PATH: /app/local_env.yaml
+      APP_CONFIG_PATH: /app/local_env.yaml
     volumes:
       - ./shared:/app/shared
       - ./backend:/app/backend 
@@ -67,11 +67,11 @@ services:
     build:
       context: .
       dockerfile: telegram_bot/Dockerfile
-    container_name: nowmeow-bot
+    container_name: ${CONTAINER_PREFIX:-remote-access}-bot
     restart: unless-stopped
     environment:
       TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
-      NOWMEOW_CONFIG_PATH: /app/local_env.yaml
+      APP_CONFIG_PATH: /app/local_env.yaml
     volumes:
       - ./shared:/app/shared
       - ./telegram_bot:/app/telegram_bot # Проброс для разработки
@@ -94,10 +94,10 @@ services:
     build:
       context: .
       dockerfile: shared/alembic/Dockerfile
-    container_name: nowmeow-alembic
+    container_name: ${CONTAINER_PREFIX:-remote-access}-alembic
     profiles: ["tools"] # Не запускается сам по себе
     environment:
-      NOWMEOW_CONFIG_PATH: /app/local_env.yaml
+      APP_CONFIG_PATH: /app/local_env.yaml
     volumes:
       - ./local_env.yaml:/app/local_env.yaml
     env_file:
@@ -110,7 +110,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-    container_name: nowmeow-frontend-builder
+    container_name: ${CONTAINER_PREFIX:-remote-access}-frontend-builder
     profiles: ["tools"] # Не запускается сам по себе
     command: >
       sh -c "rm -rf /frontend-dist/assets /frontend-dist/fonts /frontend-dist/favicon.svg /frontend-dist/index.html && cp -r /usr/share/nginx/html/* /frontend-dist/"

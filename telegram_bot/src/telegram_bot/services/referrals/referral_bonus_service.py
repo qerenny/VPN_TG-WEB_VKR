@@ -1,5 +1,6 @@
 from typing import Optional
 
+from shared.config.config import config
 from shared.infrastructure.referrals.referral_repository import (
     ReferralRepository,
 )
@@ -17,6 +18,21 @@ from shared.utils.timestamp_utils import TimestampUtils
 from telegram_bot.infrastructure.api.client_manager import ClientManager
 
 
+def _load_referral_reward_rules() -> tuple[int, dict[int, int]]:
+    referrals_config = config.get("referrals", {})
+    if not isinstance(referrals_config, dict):
+        return 7, {3: 10, 5: 15, 10: 31, 15: 62}
+
+    default_days = int(referrals_config.get("default_referrer_bonus_days", 7))
+    raw_rules = referrals_config.get("referrer_bonus_rules", {})
+    if not isinstance(raw_rules, dict):
+        return default_days, {}
+    return default_days, {
+        int(count): int(days)
+        for count, days in raw_rules.items()
+    }
+
+
 class ReferralBonusService:
     def __init__(
         self,
@@ -31,6 +47,9 @@ class ReferralBonusService:
         self.repo_user = repo_user
         self.client = client
         self.sync_service = sync_service
+        self.default_referrer_bonus_days, self.referrer_bonus_rules = (
+            _load_referral_reward_rules()
+        )
 
     async def grant_bonus_to_user(
         self,
@@ -141,17 +160,10 @@ class ReferralBonusService:
         """
         Bonus days for the number of paid invited friends.
         """
-        match count:
-            case 3:
-                return 10
-            case 5:
-                return 15
-            case 10:
-                return 31
-            case 15:
-                return 62
-            case _:
-                return 7
+        return self.referrer_bonus_rules.get(
+            int(count),
+            self.default_referrer_bonus_days,
+        )
 
     async def _sync_referral_reward(
         self,

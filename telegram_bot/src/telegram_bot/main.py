@@ -117,6 +117,9 @@ async def _wait_for_telegram_api(bot_instance) -> None:
 async def run_bot(app: TelegramBotApp) -> None:
     logger.info("Connecting to external services...")
     features = get_product_feature_settings()
+    if not features.telegram_bot_enabled:
+        logger.info("Telegram bot runtime is disabled by product settings.")
+        return
 
     register_start_routes(
         app.start_handler,
@@ -124,12 +127,17 @@ async def run_bot(app: TelegramBotApp) -> None:
         app.support_handler,
         app.instructions_handler,
     )
+    subscription_route_kwargs = {"commerce_enabled": features.commerce_enabled}
+    if hasattr(features, "traffic_limited_config_enabled"):
+        subscription_route_kwargs["traffic_limited_config_enabled"] = (
+            features.traffic_limited_config_enabled
+        )
     register_subscription_routes(
         app.payment_command_handler,
         app.subscription_menu_handler,
         app.subscription_trial_handler,
         app.subscription_news_channel_handler,
-        commerce_enabled=features.commerce_enabled,
+        **subscription_route_kwargs,
     )
     if features.promos_enabled:
         register_promo_routes(app.subscription_promo_handler)
@@ -152,9 +160,18 @@ async def run_bot(app: TelegramBotApp) -> None:
     logger.info("Start of background tasks...")
     reminder_scheduler_task = asyncio.create_task(app.reminder_service.run_scheduler())
     reminder_worker_task = asyncio.create_task(app.reminder_service.run_worker())
-    whitelist_traffic_sync_task = asyncio.create_task(
-        app.whitelist_traffic_sync_service.run_scheduler()
+    whitelist_traffic_sync_task = None
+    traffic_limited_config_enabled = getattr(
+        features,
+        "traffic_limited_config_enabled",
+        True,
     )
+    if traffic_limited_config_enabled:
+        whitelist_traffic_sync_task = asyncio.create_task(
+            app.whitelist_traffic_sync_service.run_scheduler()
+        )
+    else:
+        logger.info("Traffic-limited configuration sync is disabled by product settings.")
     payment_tasks: list[asyncio.Task] = []
     if features.commerce_enabled:
         payment_tasks = [
@@ -171,13 +188,14 @@ async def run_bot(app: TelegramBotApp) -> None:
         _mark_telegram_ready(False)
         reminder_scheduler_task.cancel()
         reminder_worker_task.cancel()
-        whitelist_traffic_sync_task.cancel()
+        if whitelist_traffic_sync_task is not None:
+            whitelist_traffic_sync_task.cancel()
         for task in payment_tasks:
             task.cancel()
         await asyncio.gather(
             reminder_scheduler_task,
             reminder_worker_task,
-            whitelist_traffic_sync_task,
+            *([whitelist_traffic_sync_task] if whitelist_traffic_sync_task is not None else []),
             *payment_tasks,
             return_exceptions=True,
         )

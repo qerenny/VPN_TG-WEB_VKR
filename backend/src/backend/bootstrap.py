@@ -37,8 +37,7 @@ from shared.infrastructure.users.telegram_user_repository import TelegramUserRep
 from shared.utils.jwt_encoder import JWTEncoder
 from shared.utils.timestamp_utils import TimestampUtils
 from telegram_bot.infrastructure.api.client_manager import ClientManager
-from telegram_bot.services.payments.cryptopay_service import CryptoPayService
-from telegram_bot.services.payments.yookassa_service import YooKassaService
+from telegram_bot.services.payments.demo_payment_gateway import build_demo_payment_gateways
 from telegram_bot.services.subscriptions.standard_user_subscription_service import (
     StandardUserSubscriptionService,
 )
@@ -117,10 +116,7 @@ def build_backend_deps(settings: BackendSettings | None = None) -> BackendDeps:
     )
     web_checkout_service = WebCheckoutService(
         payment_repository=payment_repository,
-        gateways={
-            "yookassa": YooKassaService(uuid=uuid_generator),
-            "cryptopay": CryptoPayService(),
-        },
+        gateways=build_demo_payment_gateways(uuid_generator),
         timestamp=timestamp_utils,
     )
     user_manager_service = UserManagerService(

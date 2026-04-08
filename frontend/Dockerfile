@@ -16,4 +16,4 @@ FROM nginx:alpine AS deployer
 RUN rm -rf /usr/share/nginx/html/*
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-CMD ["echo", "Built frontend. Copy /usr/share/nginx/html → /var/www/nowmeow"]
+CMD ["echo", "Built frontend. Copy /usr/share/nginx/html to FRONTEND_PUBLIC_DIR."]

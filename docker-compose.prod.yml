@@ -3,7 +3,7 @@ services:
     build:
       context: ./docker/xray
       dockerfile: Dockerfile
-    container_name: nowmeow-xray
+    container_name: ${CONTAINER_PREFIX:-remote-access}-xray
     restart: unless-stopped
     profiles:
       - proxy
@@ -11,11 +11,11 @@ services:
       TELEGRAM_VLESS_URL: ${TELEGRAM_VLESS_URL:-}
 
   backend:
-    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/backend:latest
-    container_name: nowmeow-backend
+    image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/backend:latest
+    container_name: ${CONTAINER_PREFIX:-remote-access}-backend
     restart: unless-stopped
     environment:
-      NOWMEOW_CONFIG_PATH: /app/production_env.yaml
+      APP_CONFIG_PATH: /app/production_env.yaml
     volumes:
       - type: bind
         source: ./production_env.yaml
@@ -38,10 +38,10 @@ services:
       start_period: 10s
 
   alembic:
-    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/alembic:latest
-    container_name: nowmeow-alembic
+    image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/alembic:latest
+    container_name: ${CONTAINER_PREFIX:-remote-access}-alembic
     environment:
-      NOWMEOW_CONFIG_PATH: /app/production_env.yaml
+      APP_CONFIG_PATH: /app/production_env.yaml
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,12 +56,12 @@ services:
       - tools
 
   telegram_bot:
-    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/telegram_bot:latest
-    container_name: nowmeow-bot
+    image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/telegram_bot:latest
+    container_name: ${CONTAINER_PREFIX:-remote-access}-bot
     restart: unless-stopped
     environment:
       TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
-      NOWMEOW_CONFIG_PATH: /app/production_env.yaml
+      APP_CONFIG_PATH: /app/production_env.yaml
     volumes:
       - type: bind
         source: ./production_env.yaml
@@ -82,37 +82,37 @@ services:
       start_period: 10s
 
   frontend:
-    image: ${IMAGE_PREFIX:-ghcr.io/qerenny/nowmeow}/frontend:latest
-    container_name: nowmeow-frontend-extractor
+    image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/frontend:latest
+    container_name: ${CONTAINER_PREFIX:-remote-access}-frontend-extractor
     restart: "no"
     profiles:
       - tools
     command: >
       sh -c "rm -rf /frontend-dist/assets /frontend-dist/fonts /frontend-dist/favicon.svg /frontend-dist/index.html && cp -r /usr/share/nginx/html/* /frontend-dist/"
     volumes:
-      - ${FRONTEND_PUBLIC_DIR:-/var/www/nowmeow}:/frontend-dist
+      - ${FRONTEND_PUBLIC_DIR:-/var/www/remote-access-service}:/frontend-dist
 
   postgres:
     image: postgres:15
-    container_name: nowmeow-postgres
+    container_name: ${CONTAINER_PREFIX:-remote-access}-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: nowmeow
-      POSTGRES_USER: nowmeow
-      POSTGRES_PASSWORD: nowmeow
+      POSTGRES_DB: ${POSTGRES_DB:-remote_access}
+      POSTGRES_USER: ${POSTGRES_USER:-remote_access}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nowmeow"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-remote_access} -d $${POSTGRES_DB:-remote_access}"]
       interval: 5s
       timeout: 5s
       retries: 12
 
   redis:
     image: redis:7-alpine
-    container_name: nowmeow-redis
+    container_name: ${CONTAINER_PREFIX:-remote-access}-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:

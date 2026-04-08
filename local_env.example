@@ -55,6 +55,7 @@ features:
   web_purchase_enabled: true
   telegram_bot_enabled: true
   telegram_proxy_enabled: true
+  traffic_limited_config_enabled: true
 
 deploy:
   project_slug: "remote-access-service"
@@ -67,14 +68,126 @@ deploy:
   postgres_db: "remote_access"
   postgres_user: "remote_access"
 
-cryptopay:
-  # token: "your_test_token_here"
-  token: "your_cryptopay_token_here"
+plans:
+  - code: "trial_3d"
+    legacy_payload: "day3"
+    name: "Пробный доступ на 3 дня"
+    kind: "trial"
+    scope: "standard"
+    entitlement_kind: "time"
+    duration_days: 3
+    quota_bytes:
+    price_amount:
+    currency:
+    is_active: true
+  - code: "news_bonus_4d"
+    legacy_payload: "day4"
+    name: "Бонусный доступ на 4 дня"
+    kind: "bonus"
+    scope: "standard"
+    entitlement_kind: "time"
+    duration_days: 4
+    quota_bytes:
+    price_amount:
+    currency:
+    is_active: true
+  - code: "month_1"
+    legacy_payload: "month1"
+    name: "Доступ на 1 месяц"
+    kind: "paid"
+    scope: "standard"
+    entitlement_kind: "time"
+    duration_days: 30
+    quota_bytes:
+    price_amount: "169.00"
+    currency: "RUB"
+    is_active: true
+  - code: "month_3"
+    legacy_payload: "month3"
+    name: "Доступ на 3 месяца"
+    kind: "paid"
+    scope: "standard"
+    entitlement_kind: "time"
+    duration_days: 90
+    quota_bytes:
+    price_amount: "449.00"
+    currency: "RUB"
+    is_active: true
+  - code: "month_6"
+    legacy_payload: "month6"
+    name: "Доступ на 6 месяцев"
+    kind: "paid"
+    scope: "standard"
+    entitlement_kind: "time"
+    duration_days: 180
+    quota_bytes:
+    price_amount: "799.00"
+    currency: "RUB"
+    is_active: true
+  - code: "year_1"
+    legacy_payload: "year1"
+    name: "Доступ на 12 месяцев"
+    kind: "paid"
+    scope: "standard"
+    entitlement_kind: "time"
+    duration_days: 365
+    quota_bytes:
+    price_amount: "1490.00"
+    currency: "RUB"
+    is_active: true
+  - code: "whitelist_trial_2gb"
+    legacy_payload: "whitelist_trial_2gb"
+    name: "Пробная конфигурация с лимитом 2 GB"
+    kind: "trial"
+    scope: "whitelist"
+    entitlement_kind: "traffic"
+    duration_days: 3
+    quota_bytes: 2147483648
+    price_amount:
+    currency:
+    is_active: false
+  - code: "whitelist_15gb"
+    legacy_payload: "whitelist15gb"
+    name: "Конфигурация с лимитом 15 GB"
+    kind: "paid"
+    scope: "whitelist"
+    entitlement_kind: "traffic"
+    duration_days: 30
+    quota_bytes: 16106127360
+    price_amount: "99.00"
+    currency: "RUB"
+    is_active: true
+  - code: "whitelist_35gb"
+    legacy_payload: "whitelist35gb"
+    name: "Конфигурация с лимитом 35 GB"
+    kind: "paid"
+    scope: "whitelist"
+    entitlement_kind: "traffic"
+    duration_days: 45
+    quota_bytes: 37580963840
+    price_amount: "249.00"
+    currency: "RUB"
+    is_active: true
+  - code: "whitelist_80gb"
+    legacy_payload: "whitelist80gb"
+    name: "Конфигурация с лимитом 80 GB"
+    kind: "paid"
+    scope: "whitelist"
+    entitlement_kind: "traffic"
+    duration_days: 60
+    quota_bytes: 85899345920
+    price_amount: "499.00"
+    currency: "RUB"
+    is_active: true
 
-
-yookassa:
-  account_id: "your_account_id_here"
-  secret_key: "your_secret_key_here"
+# Optional real provider sections are intentionally omitted in the default
+# diploma/open-source config. The application uses demo external gateways below.
+# cryptopay:
+#   token: "your_cryptopay_token_here"
+#
+# yookassa:
+#   account_id: "your_account_id_here"
+#   secret_key: "your_secret_key_here"
 
 bot:
   tg_id: "your_bot_username"
@@ -85,6 +198,14 @@ bot:
   news_channel: "your_news_channel"
   news_channel_id: "-1000000000000"
   support: "your_support_username"
+
+referrals:
+  default_referrer_bonus_days: 7
+  referrer_bonus_rules:
+    3: 10
+    5: 15
+    10: 31
+    15: 62
 
 images:
   subscriptions: "your_telegram_file_id_here"
@@ -193,6 +314,12 @@ redis:
 
 payments:
   webhook_token: "set_random_secret_token_here"
+  card_gateway_code: "external_card"
+  card_gateway_label: "Банковская карта"
+  wallet_gateway_code: "external_wallet"
+  wallet_gateway_label: "Электронный кошелёк"
+  demo_checkout_path: "/demo-payment"
+  demo_auto_paid: true
 
 jwt:
   secret: "your_jwt_secret_key_here"

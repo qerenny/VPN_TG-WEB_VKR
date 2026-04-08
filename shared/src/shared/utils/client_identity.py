@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 
+from shared.config.config import PRODUCT_REDIS_PREFIX
 from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
 
-DEFAULT_CLIENT_IDENTITY_SEED = "remote_access"
+DEFAULT_CLIENT_IDENTITY_SEED = PRODUCT_REDIS_PREFIX
 
 
 def normalize_client_identity_seed(

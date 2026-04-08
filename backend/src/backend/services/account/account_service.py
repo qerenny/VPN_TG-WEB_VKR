@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func as sa_func, select
 
 from shared.config.database.session import get_db_session
+from shared.config.settings import get_product_feature_settings
 from shared.config.config import (
     BACKEND_TELEGRAM_SUBSCRIPTION_LINK,
     BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK,
@@ -348,6 +349,7 @@ class AccountService:
         return payments
 
     async def get_plan_catalog(self) -> dict:
+        features = get_product_feature_settings()
         async with get_db_session() as session:
             plans = (
                 await session.execute(
@@ -377,7 +379,8 @@ class AccountService:
                 "human_view_traffic_quota": self._human_view_traffic_bytes(plan.quota_bytes),
             }
             if str(plan.scope) == PRODUCT_SCOPE_WHITELIST:
-                whitelist.append(item)
+                if features.traffic_limited_config_enabled:
+                    whitelist.append(item)
             else:
                 standard.append(item)
 

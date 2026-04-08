@@ -18,6 +18,7 @@ const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 const loading = ref(true)
 const features = computed<FrontendFeatureFlags>(() => publicConfig.value.features || DEFAULT_FEATURE_FLAGS)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
+const subscriptionClientName = computed(() => 'Happ')
 
 function buildHappImportLink(importUrl?: string | null) {
   const addLink = publicConfig.value?.subscription_add_links?.happ?.trim() || ''
@@ -42,7 +43,7 @@ async function copyImportUrl(url: string) {
 const cards = computed(() => {
   if (!subscriptions.value) return []
 
-  return [
+  const items = [
     {
       key: 'standard',
       title: 'Базовая конфигурация',
@@ -77,6 +78,9 @@ const cards = computed(() => {
       ],
     },
   ]
+  return features.value.traffic_limited_config_enabled
+    ? items
+    : items.filter((item) => item.key !== 'whitelist')
 })
 
 onMounted(async () => {
@@ -154,7 +158,7 @@ onMounted(async () => {
               rel="noopener noreferrer"
             >
               <span class="material-symbols-outlined">add_link</span>
-              Добавить в Happ
+              Добавить в {{ subscriptionClientName }}
             </a>
             <button class="cabinet-btn cabinet-btn--ghost" type="button" @click="copyImportUrl(card.importUrl!)">
               <span class="material-symbols-outlined">content_copy</span>
@@ -163,7 +167,7 @@ onMounted(async () => {
           </div>
 
           <p class="scope-card__hint">
-            Скачайте <RouterLink to="/app/help" class="scope-card__hint-link">Happ</RouterLink> и добавьте подписку одной кнопкой.
+            Скачайте <RouterLink to="/app/help" class="scope-card__hint-link">{{ subscriptionClientName }}</RouterLink> и добавьте подписку одной кнопкой.
           </p>
         </template>
 
@@ -196,7 +200,7 @@ onMounted(async () => {
       <span class="material-symbols-outlined subs-help__icon">help_outline</span>
       <div class="subs-help__body">
         <p class="subs-help__title">Не знаете, как подключиться?</p>
-        <p class="subs-help__desc">Скачайте приложение Happ, добавьте подписку — и VPN заработает. Подробная инструкция и ссылки на загрузку на странице помощи.</p>
+        <p class="subs-help__desc">Скачайте приложение {{ subscriptionClientName }}, добавьте подписку — и VPN заработает. Подробная инструкция и ссылки на загрузку на странице помощи.</p>
       </div>
       <RouterLink class="cabinet-btn cabinet-btn--ghost" to="/app/help">
         <span class="material-symbols-outlined">arrow_forward</span>

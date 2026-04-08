@@ -1,6 +1,7 @@
 xui_app_cert_file: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
 xui_app_key_file: "/etc/letsencrypt/live/{{ domain_name }}/privkey.pem"
 xui_app_local_secrets_dir: "{{ playbook_dir }}/secrets"
+xui_app_ssh_identity_file: "~/.ssh/remote_access_servers"
 xui_app_install_script_url: "https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh"
 xui_app_install_script_path: "/tmp/install_xui.sh"
 xui_app_force_update: false

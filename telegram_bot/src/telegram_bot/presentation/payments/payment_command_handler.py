@@ -26,10 +26,16 @@ class PaymentCommandHandler:
         gateways: dict[str, PaymentGateway],
         repo: PaymentRepository,
         timestamp: TimestampUtils,
+        gateway_labels: dict[str, str] | None = None,
     ):
         self.gateways = gateways
         self.repo = repo
         self.timestamp = timestamp
+        self.gateway_labels = {
+            "yookassa": messages.get_random_message("payments_pay_by_card"),
+            "cryptopay": messages.get_random_message("payments_pay_by_crypto"),
+            **(gateway_labels or {}),
+        }
 
     async def ask_payment_method(self, target: Message | CallbackQuery, product: dict) -> None:
         message = target.message if isinstance(target, CallbackQuery) else target
@@ -41,18 +47,16 @@ class PaymentCommandHandler:
             return
 
         markup = InlineKeyboardMarkup()
-        markup.row(
-            InlineKeyboardButton(
-                messages.get_random_message("payments_pay_by_card"),
-                callback_data=f"pay_method:yookassa:{product['payload']}",
-            ),
-        )
-        markup.row(
-            InlineKeyboardButton(
-                messages.get_random_message("payments_pay_by_crypto"),
-                callback_data=f"pay_method:cryptopay:{product['payload']}",
-            ),
-        )
+        method_order = list(self.gateways)
+        method_order.sort(key=lambda method: {"yookassa": 0, "cryptopay": 1}.get(method, 10))
+        for method in method_order:
+            label = self.gateway_labels.get(method, method.replace("_", " ").title())
+            markup.row(
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"pay_method:{method}:{product['payload']}",
+                ),
+            )
 
         await render_photo_menu(
             target=target,
@@ -92,20 +96,13 @@ class PaymentCommandHandler:
 
         logger.info(f"[{method}] Sending payment link to tg_id={message.chat.id}")
         
-        if method == "cryptopay":
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text=f"*{messages.get_random_message('payments_pay_by_crypto_description')}\n{product['label']}*\n\n{messages.get_random_message('payments_pay_and_wait')}",
-                parse_mode="Markdown",
-                reply_markup=markup,
-            )
-        elif method == "yookassa":
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text=f"*{messages.get_random_message('payments_pay_by_card_description')}\n{product['label']}*\n\n{messages.get_random_message('payments_pay_and_wait')}",
-                parse_mode="Markdown",
-                reply_markup=markup,
-            )
-        else:
-            logger.error(f"Unsupported payment method: {method}")
-            raise ValueError(f"Unsupported payment method: {method}")
+        provider_label = self.gateway_labels.get(method, method.replace("_", " ").title())
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=(
+                f"*{provider_label}\n{product['label']}*\n\n"
+                f"{messages.get_random_message('payments_pay_and_wait')}"
+            ),
+            parse_mode="Markdown",
+            reply_markup=markup,
+        )

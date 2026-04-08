@@ -74,6 +74,15 @@ def _require_promos_enabled(features: ProductFeatureSettings | None = None) -> P
     return current
 
 
+def _require_traffic_limited_config_enabled(
+    features: ProductFeatureSettings | None = None,
+) -> ProductFeatureSettings:
+    current = features or get_product_feature_settings()
+    if not current.traffic_limited_config_enabled:
+        _raise_feature_disabled()
+    return current
+
+
 @router.get("", response_model=WebMeResponse)
 async def get_web_session_me(
     principal: AuthenticatedWebUser = Depends(require_web_user),
@@ -183,6 +192,7 @@ async def create_web_checkout(
     checkout_service: WebCheckoutService = Depends(get_web_checkout_service),
 ):
     _require_web_purchase_enabled()
+    _require_traffic_limited_config_enabled()
     result = await checkout_service.create_checkout(
         user_id=principal.user_id,
         plan_code=payload.plan_code,

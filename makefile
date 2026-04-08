@@ -12,7 +12,7 @@ install-backend:
 	cd backend && poetry install
 
 frontend:
-	cd frontend && __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=nmdev.emptycloud.space npm run dev -- --host 0.0.0.0 --port 5173
+	cd frontend && __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=localhost npm run dev -- --host 0.0.0.0 --port 5173
 
 build-frontend:
 	cd frontend && npm run build
@@ -49,9 +49,6 @@ format_ruff:
 	poetry run --directory backend ruff format backend/src
 
 all: lint check_format
-
-merge:
-	git checkout main && git merge local && git push origin main && git checkout local
 
 .PHONY: backend frontend build-frontend deploy-frontend-prod dev bot install-backend install-bot install-shared install-frontend \
         lint check_format format format_ruff all

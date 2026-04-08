@@ -19,10 +19,7 @@ from shared.models import register_models as register_models
 from shared.utils.async_redis_client import AsyncRedisClient
 
 
-INTEGRATION_ENABLED = (
-    os.getenv("APP_RUN_INTEGRATION") == "1"
-    or os.getenv("NOWMEOW_RUN_INTEGRATION") == "1"
-)
+INTEGRATION_ENABLED = os.getenv("APP_RUN_INTEGRATION") == "1"
 
 ACTIVE_SCHEMA_TABLE_NAMES = (
     "admin_audit_log",
@@ -67,7 +64,7 @@ def _assert_safe_integration_target() -> None:
             "Integration tests require APP_CONFIG_PATH=<repo>/tests/integration/env.ci.yaml "
             f"to avoid mutating the default database. Current config: {config_path}"
         )
-    if DB_NAME == "nowmeow" or "integration" not in DB_NAME:
+    if DB_NAME == "remote_access" or "integration" not in DB_NAME:
         raise RuntimeError(
             "Integration tests require a dedicated database name containing 'integration'. "
             f"Current database: {DB_NAME}"

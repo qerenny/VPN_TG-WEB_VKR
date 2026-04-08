@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.services.payments.payment_webhook_service import PaymentWebhookService
 from shared.config.config import (
+    PAYMENT_PROVIDER_CARD_CODE,
+    PAYMENT_PROVIDER_WALLET_CODE,
     PAYMENT_WEBHOOK_TOKEN,
     REDIS_PAYMENT_DEDUPE_PREFIX,
     REDIS_PAYMENT_DEDUPE_TTL_SECONDS,
@@ -75,6 +77,40 @@ def _extract_cryptopay_update(payload: dict[str, Any]) -> tuple[str, str]:
     if not payment_id or not status:
         raise HTTPException(status_code=400, detail="Missing cryptopay invoice id or status")
     return payment_id, status
+
+
+def _extract_external_gateway_update(payload: dict[str, Any]) -> tuple[str, str]:
+    payment_id = str(payload.get("payment_id", "")).strip()
+    status = str(payload.get("status", "")).strip().lower()
+    if not payment_id or not status:
+        raise HTTPException(status_code=400, detail="Missing payment id or status")
+    return payment_id, status
+
+
+@router.post("/webhook/external/{method}/{token}")
+async def external_gateway_webhook(method: str, token: str, request: Request):
+    _assert_webhook_auth(token)
+    method_key = str(method).strip().lower()
+    allowed_methods = {PAYMENT_PROVIDER_CARD_CODE, PAYMENT_PROVIDER_WALLET_CODE}
+    if method_key not in allowed_methods:
+        raise HTTPException(status_code=404, detail="Payment method is not configured")
+
+    try:
+        payload = await request.json()
+    except Exception as err:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from err
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    payment_id, status = _extract_external_gateway_update(payload)
+    service = _build_service(request)
+    result = await service.process_status_update(
+        method=method_key,
+        payment_id=payment_id,
+        status=status,
+        payload=payload,
+    )
+
+    return {"ok": True, **result}
 
 
 @router.post("/webhook/yookassa/{token}")

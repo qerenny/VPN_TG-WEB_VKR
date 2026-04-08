@@ -146,7 +146,7 @@ export async function startTelegramLink() {
   return response.data
 }
 
-export async function createStandardCheckout(planCode: string, method = 'yookassa') {
+export async function createStandardCheckout(planCode: string, method = 'external_card') {
   const response = await http.post('/me/payments/checkout', {
     plan_code: planCode,
     method,
@@ -154,7 +154,7 @@ export async function createStandardCheckout(planCode: string, method = 'yookass
   return response.data as { checkout_url: string }
 }
 
-export async function createWhitelistCheckout(planCode: string, method = 'yookassa') {
+export async function createWhitelistCheckout(planCode: string, method = 'external_card') {
   const response = await http.post('/me/payments/checkout/whitelist', {
     plan_code: planCode,
     method,

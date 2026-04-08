@@ -27,6 +27,7 @@ PAID_PRODUCTS = {
     "sub_whitelist80gb": WHITELIST80GB,
 }
 COMMERCE_DISABLED_CALLBACK_TEXT = "Оплата отключена"
+TRAFFIC_LIMITED_DISABLED_CALLBACK_TEXT = "Конфигурации с лимитом трафика отключены"
 
 
 def register_subscription_routes(
@@ -36,6 +37,7 @@ def register_subscription_routes(
     subscription_news_channel_handler: SubscriptionNewsChannelHandler,
     *,
     commerce_enabled: bool = True,
+    traffic_limited_config_enabled: bool = True,
 ):
     @bot.callback_query_handler(func=lambda call: call.data == "profile_subscriptions")
     async def handle_show_subscriptions(call: CallbackQuery) -> None:
@@ -57,15 +59,24 @@ def register_subscription_routes(
             await bot.answer_callback_query(call.id)
             await subscription_news_channel_handler.show_news_channel_menu(call)
         elif data == "sub_whitelist_menu":
+            if not traffic_limited_config_enabled:
+                await bot.answer_callback_query(call.id, TRAFFIC_LIMITED_DISABLED_CALLBACK_TEXT)
+                return
             await bot.answer_callback_query(call.id)
             await subscription_menu_handler.show_whitelist_menu(call)
         elif data == "sub_whitelist_trial":
+            if not traffic_limited_config_enabled:
+                await bot.answer_callback_query(call.id, TRAFFIC_LIMITED_DISABLED_CALLBACK_TEXT)
+                return
             await bot.answer_callback_query(call.id)
             decorated = subscription_news_channel_handler.check_news_channel_subscription(
                 subscription_trial_handler.grant_whitelist_trial
             )
             await decorated(call)
         elif data in PAID_PRODUCTS:
+            if data.startswith("sub_whitelist") and not traffic_limited_config_enabled:
+                await bot.answer_callback_query(call.id, TRAFFIC_LIMITED_DISABLED_CALLBACK_TEXT)
+                return
             if not commerce_enabled:
                 await bot.answer_callback_query(call.id, COMMERCE_DISABLED_CALLBACK_TEXT)
                 return

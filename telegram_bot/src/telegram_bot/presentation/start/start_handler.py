@@ -25,12 +25,14 @@ class StartHandler:
         repo: TelegramUserRepository,
         subscription_service: SubscriptionProvisioningService,
         telegram_link_service: TelegramLinkService,
+        referrals_enabled: bool = True,
     ):
         self.repo = repo
         self.subscription_service = subscription_service
         self.referral_start = referral_start
         self.user_register = user_register
         self.telegram_link_service = telegram_link_service
+        self.referrals_enabled = referrals_enabled
     async def process_start_command(self, message: Message) -> None:
         tg_id = message.chat.id
         referral_code = message.text.split()
@@ -50,12 +52,13 @@ class StartHandler:
             return
 
         user_created = await self.user_register.register_user(message)
-        await self.referral_start.process_start_command(
-            message,
-            referral_code,
-            user_created=user_created,
-        )
-        logger.info(f"Referral code processing complete for chat_id={tg_id}")
+        if self.referrals_enabled:
+            await self.referral_start.process_start_command(
+                message,
+                referral_code,
+                user_created=user_created,
+            )
+            logger.info(f"Referral code processing complete for chat_id={tg_id}")
 
         await self.send_main_menu(message)
     async def send_main_menu(self, target: Message | CallbackQuery) -> None:
@@ -63,7 +66,10 @@ class StartHandler:
         tg_id = message.chat.id
         text = messages.get_random_message("start_welcome_message")
         cabinet_url = await self.telegram_link_service.create_web_link(tg_id=int(tg_id))
-        markup = build_main_menu_markup(cabinet_url=cabinet_url)
+        markup = build_main_menu_markup(
+            cabinet_url=cabinet_url,
+            referrals_enabled=self.referrals_enabled,
+        )
         await render_photo_menu(
             target=target,
             photo=PHOTO_menu,

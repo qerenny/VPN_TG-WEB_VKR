@@ -126,6 +126,7 @@ class ProductFeatureSettings:
     web_purchase_enabled: bool
     telegram_bot_enabled: bool
     telegram_proxy_enabled: bool
+    traffic_limited_config_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +279,11 @@ def _load_feature_settings() -> ProductFeatureSettings:
             features,
             "telegram_proxy_enabled",
             bool(str(frontend.get("telegram_proxy_url", "")).strip()),
+        ),
+        traffic_limited_config_enabled=_setting_bool(
+            features,
+            "traffic_limited_config_enabled",
+            legacy_config.FEATURE_TRAFFIC_LIMITED_CONFIG_ENABLED,
         ),
     )
 

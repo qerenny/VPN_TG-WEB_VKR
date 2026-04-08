@@ -9,6 +9,7 @@ export interface FrontendFeatureFlags {
   web_purchase_enabled: boolean
   telegram_bot_enabled: boolean
   telegram_proxy_enabled: boolean
+  traffic_limited_config_enabled: boolean
 }
 
 export const DEFAULT_FEATURE_FLAGS: FrontendFeatureFlags = Object.freeze({
@@ -18,11 +19,42 @@ export const DEFAULT_FEATURE_FLAGS: FrontendFeatureFlags = Object.freeze({
   web_purchase_enabled: true,
   telegram_bot_enabled: true,
   telegram_proxy_enabled: false,
+  traffic_limited_config_enabled: true,
+})
+
+export interface FrontendProductConfig {
+  name: string
+  short_name: string
+  description: string
+  profile_title: string
+  traffic_profile_title: string
+  support_name: string
+  support_link: string
+  docs_links: Record<string, string>
+}
+
+export const DEFAULT_PRODUCT_CONFIG: FrontendProductConfig = Object.freeze({
+  name: 'Remote Access Service',
+  short_name: 'Remote Access',
+  description: 'Automated protected remote access service',
+  profile_title: 'Remote Access',
+  traffic_profile_title: 'Traffic-Limited Remote Access',
+  support_name: 'Support',
+  support_link: '',
+  docs_links: {},
 })
 
 export interface FrontendPublicConfig {
+  product: FrontendProductConfig
   features: FrontendFeatureFlags
   support_link?: string
+  payment_methods?: {
+    primary?: string
+    items?: Array<{
+      code: string
+      label: string
+    }>
+  }
   telegram_proxy_url?: string
   subscription_add_links?: {
     happ?: string
@@ -46,8 +78,10 @@ export interface FrontendPublicConfig {
 }
 
 export const EMPTY_PUBLIC_CONFIG: FrontendPublicConfig = Object.freeze({
+  product: DEFAULT_PRODUCT_CONFIG,
   features: DEFAULT_FEATURE_FLAGS,
   support_link: undefined,
+  payment_methods: { primary: 'external_card', items: [] },
   telegram_proxy_url: undefined,
   subscription_add_links: {},
   app_links: {},
@@ -57,7 +91,9 @@ export const EMPTY_PUBLIC_CONFIG: FrontendPublicConfig = Object.freeze({
 export function createEmptyPublicConfig(): FrontendPublicConfig {
   return {
     features: { ...DEFAULT_FEATURE_FLAGS },
+    product: { ...DEFAULT_PRODUCT_CONFIG, docs_links: {} },
     support_link: undefined,
+    payment_methods: { primary: 'external_card', items: [] },
     telegram_proxy_url: undefined,
     subscription_add_links: {},
     app_links: {},
@@ -74,6 +110,10 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
     value.features && typeof value.features === 'object'
       ? (value.features as Partial<Record<keyof FrontendFeatureFlags, unknown>>)
       : {}
+  const rawProduct =
+    value.product && typeof value.product === 'object'
+      ? (value.product as Partial<Record<keyof FrontendProductConfig, unknown>>)
+      : {}
 
   const subscriptionAddLinks =
     value.subscription_add_links && typeof value.subscription_add_links === 'object'
@@ -89,9 +129,34 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
     value.instruction_links && typeof value.instruction_links === 'object'
       ? (value.instruction_links as FrontendPublicConfig['instruction_links'])
       : {}
+  const paymentMethods =
+    value.payment_methods && typeof value.payment_methods === 'object'
+      ? (value.payment_methods as FrontendPublicConfig['payment_methods'])
+      : { primary: 'external_card', items: [] }
 
   return {
     ...EMPTY_PUBLIC_CONFIG,
+    product: {
+      ...DEFAULT_PRODUCT_CONFIG,
+      name: typeof rawProduct.name === 'string' ? rawProduct.name : DEFAULT_PRODUCT_CONFIG.name,
+      short_name: typeof rawProduct.short_name === 'string' ? rawProduct.short_name : DEFAULT_PRODUCT_CONFIG.short_name,
+      description:
+        typeof rawProduct.description === 'string' ? rawProduct.description : DEFAULT_PRODUCT_CONFIG.description,
+      profile_title:
+        typeof rawProduct.profile_title === 'string' ? rawProduct.profile_title : DEFAULT_PRODUCT_CONFIG.profile_title,
+      traffic_profile_title:
+        typeof rawProduct.traffic_profile_title === 'string'
+          ? rawProduct.traffic_profile_title
+          : DEFAULT_PRODUCT_CONFIG.traffic_profile_title,
+      support_name:
+        typeof rawProduct.support_name === 'string' ? rawProduct.support_name : DEFAULT_PRODUCT_CONFIG.support_name,
+      support_link:
+        typeof rawProduct.support_link === 'string' ? rawProduct.support_link : DEFAULT_PRODUCT_CONFIG.support_link,
+      docs_links:
+        rawProduct.docs_links && typeof rawProduct.docs_links === 'object'
+          ? (rawProduct.docs_links as Record<string, string>)
+          : {},
+    },
     features: {
       commerce_enabled:
         typeof rawFeatures.commerce_enabled === 'boolean'
@@ -117,8 +182,13 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
         typeof rawFeatures.telegram_proxy_enabled === 'boolean'
           ? rawFeatures.telegram_proxy_enabled
           : DEFAULT_FEATURE_FLAGS.telegram_proxy_enabled,
+      traffic_limited_config_enabled:
+        typeof rawFeatures.traffic_limited_config_enabled === 'boolean'
+          ? rawFeatures.traffic_limited_config_enabled
+          : DEFAULT_FEATURE_FLAGS.traffic_limited_config_enabled,
     },
     support_link: typeof value.support_link === 'string' ? value.support_link : undefined,
+    payment_methods: paymentMethods,
     telegram_proxy_url: typeof value.telegram_proxy_url === 'string' ? value.telegram_proxy_url : undefined,
     subscription_add_links: subscriptionAddLinks,
     app_links: appLinks,

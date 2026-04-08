@@ -36,24 +36,26 @@ class YooKassaService:
         receipt_email = (
             str(customer_email)
             if customer_email
-            else "enderbrocreep2015@yandex.ru"
+            else None
         )
-        receipt = {
-            "customer": {
-                "email": receipt_email,
-            },
-            "items": [
-                {
-                    "description": product["label"],
-                    "quantity": "1.00",
-                    "amount": {
-                        "value": f"{amount}",
-                        "currency": "RUB"
-                    },
-                    "vat_code": 1,
-                }
-            ],
-        }
+        receipt = None
+        if receipt_email:
+            receipt = {
+                "customer": {
+                    "email": receipt_email,
+                },
+                "items": [
+                    {
+                        "description": product["label"],
+                        "quantity": "1.00",
+                        "amount": {
+                            "value": f"{amount}",
+                            "currency": "RUB"
+                        },
+                        "vat_code": 1,
+                    }
+                ],
+            }
         metadata = {"tg_id": str(tg_id), "product": payload}
         if user_id is not None or str(channel).strip().lower() != "telegram":
             metadata.update(
@@ -62,17 +64,16 @@ class YooKassaService:
                     "user_id": str(user_id) if user_id is not None else "",
                 }
             )
-        payment = Payment.create(
-            {
-                "amount": {"value": f"{amount}", "currency": "RUB"},
-                "confirmation": {"type": "redirect", "return_url": return_url},
-                "capture": True,
-                "description": description,
-                "metadata": metadata,
-                "receipt": receipt,
-            },
-            idempotence_key,
-        )
+        payment_payload = {
+            "amount": {"value": f"{amount}", "currency": "RUB"},
+            "confirmation": {"type": "redirect", "return_url": return_url},
+            "capture": True,
+            "description": description,
+            "metadata": metadata,
+        }
+        if receipt is not None:
+            payment_payload["receipt"] = receipt
+        payment = Payment.create(payment_payload, idempotence_key)
         logger.info(
             "Payment created for "
             f"channel={channel}, tg_id={tg_id}, user_id={user_id} with id={payment.id}"
