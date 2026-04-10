@@ -1,7 +1,9 @@
 import os
 import asyncio
 import io
+from types import SimpleNamespace
 
+from fastapi import HTTPException
 from telebot.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -42,6 +44,7 @@ class AdminCommandHandler:
         timestamp: TimestampUtils,
         payment_queue_service: PaymentQueueService,
         jwt_encoder: JWTEncoder,
+        access_request_service=None,
     ):
         self.repo = repo
         self.subscription_user_service = subscription_user_service
@@ -49,6 +52,7 @@ class AdminCommandHandler:
         self.timestamp = timestamp
         self.payment_queue_service = payment_queue_service
         self.jwt_encoder = jwt_encoder
+        self.access_request_service = access_request_service
         self.sessions: dict[int, dict] = {}
 
     def _is_admin(self, chat_id: int) -> bool:
@@ -303,6 +307,88 @@ class AdminCommandHandler:
 
         elif data == "admin_retry_payment_dlq":
             await self.retry_payment_dlq(chat_id=chat_id, limit=100)
+        elif data.startswith("admin_access_request_approve:"):
+            if self.access_request_service is None:
+                await bot.send_message(chat_id, "Модуль заявок недоступен")
+                return
+            _, request_id_raw, template_code = (data.split(":", 2) + ["", ""])[:3]
+            try:
+                result = await self.access_request_service.review_request(
+                    request_id=int(request_id_raw),
+                    decision="approve",
+                    principal=SimpleNamespace(actor=f"tg-admin-{chat_id}"),
+                    review_note="Approved from Telegram admin panel",
+                    template_code=str(template_code or "").strip() or None,
+                )
+            except HTTPException as exc:
+                if int(getattr(exc, "status_code", 0) or 0) == 409:
+                    await self._finalize_access_request_message(
+                        call,
+                        text=(
+                            "*Заявка уже обработана*\n\n"
+                            "Доступ уже выдан или заявка уже закрыта в другом интерфейсе."
+                        ),
+                    )
+                    return
+                await bot.send_message(chat_id, str(exc.detail))
+                return
+            await self._finalize_access_request_message(
+                call,
+                text=(
+                    "*Заявка одобрена*\n\n"
+                    f"Шаблон: {getattr(result, 'approved_template_label', None) or getattr(result, 'requested_template_label', None) or 'не указан'}"
+                ),
+            )
+            await bot.send_message(
+                chat_id,
+                f"Заявка одобрена. Шаблон: {getattr(result, 'approved_template_label', None) or getattr(result, 'requested_template_label', None) or 'не указан'}",
+            )
+        elif data.startswith("admin_access_request_reject:"):
+            if self.access_request_service is None:
+                await bot.send_message(chat_id, "Модуль заявок недоступен")
+                return
+            _, request_id_raw = (data.split(":", 1) + [""])[:2]
+            try:
+                await self.access_request_service.review_request(
+                    request_id=int(request_id_raw),
+                    decision="reject",
+                    principal=SimpleNamespace(actor=f"tg-admin-{chat_id}"),
+                    review_note="Rejected from Telegram admin panel",
+                )
+            except HTTPException as exc:
+                if int(getattr(exc, "status_code", 0) or 0) == 409:
+                    await self._finalize_access_request_message(
+                        call,
+                        text="*Заявка уже обработана*\n\nКнопки отключены, повторное решение не требуется.",
+                    )
+                    return
+                await bot.send_message(chat_id, str(exc.detail))
+                return
+            await self._finalize_access_request_message(
+                call,
+                text="*Заявка отклонена*\n\nПовторное решение больше не требуется.",
+            )
+            await bot.send_message(chat_id, "Заявка отклонена.")
+
+    @staticmethod
+    async def _finalize_access_request_message(call: CallbackQuery, *, text: str) -> None:
+        chat_id = call.message.chat.id
+        message_id = call.message.message_id
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode="Markdown",
+                reply_markup=None,
+            )
+            return
+        except Exception:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None,
+            )
     async def handle_admin_text(self, message: Message) -> None:
         chat_id = message.chat.id
         if not self._is_admin(chat_id):

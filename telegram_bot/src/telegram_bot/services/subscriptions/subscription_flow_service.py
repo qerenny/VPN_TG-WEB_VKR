@@ -8,7 +8,7 @@ from telegram_bot.services.subscriptions.subscription_provisioning_service impor
     SubscriptionProvisioningService,
 )
 from telegram_bot.services.users.user_subscription_info_service import UserSubscriptionInfoService
-from telegram_bot.shared.config.subscription_products import DAY_3_TIMESTAMP, DAY_4_TIMESTAMP
+from telegram_bot.shared.config.subscription_products import DAY_3_TIMESTAMP
 from telegram_bot.shared.texts import messages
 
 
@@ -22,7 +22,6 @@ class SubscriptionFlowService:
         instruction: HelpHandler,
         user_subscription_info_service: UserSubscriptionInfoService,
         timestamp: TimestampUtils,
-        sync_service=None,
     ):
         self.subscription_service = subscription_service
         self.repo = repo
@@ -38,21 +37,20 @@ class SubscriptionFlowService:
             cls._user_locks[tg_id] = lock
         return lock
 
-    async def set_tg_news_channel_date(self, tg_id: int) -> bool:
+    async def set_tg_info_channel_date(self, tg_id: int) -> bool:
         """
-        Activates the Telegram News Channel bonus for a user.
+        Marks informational channel confirmation for a user.
         If the user doesn't exist, creates one with the bonus.
         """
         user = await self.repo.get(tg_id)
         if not user:
             return None
-        user_news_channel_date = user.news_channel_date
+        user_info_channel_date = user.info_channel_date
 
-        if not user_news_channel_date:
-            # await self.subscription_service.create_or_update_user(tg_id, DAY_4_TIMESTAMP)
+        if not user_info_channel_date:
             current_ts = self.timestamp.current_timestamp()
-            await self.repo.set_news_channel_date(tg_id=tg_id, news_channel_date=current_ts)
-            user.news_channel_date = current_ts
+            await self.repo.set_info_channel_date(tg_id=tg_id, info_channel_date=current_ts)
+            user.info_channel_date = current_ts
             return True
         return None
     async def activate_or_extend_subscription(self, tg_id: int, period: str) -> tuple[str, str]:

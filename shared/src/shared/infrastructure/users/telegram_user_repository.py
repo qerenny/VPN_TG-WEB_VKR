@@ -7,7 +7,6 @@ from typing import List
 from sqlmodel import desc, select
 
 from shared.config.database.session import get_db_session
-from shared.config.settings import RolloutFeatureFlags
 from shared.constants.vpn import VPN_PROVIDER_3X_UI
 from shared.models.subscriptions.subscription_state_model import SubscriptionState
 from shared.models.users.app_user_model import AppUser
@@ -26,7 +25,7 @@ class TelegramUserSnapshot:
     expiration_date: int | None
     login_date: int
     trial_date: int | None
-    news_channel_date: int | None
+    info_channel_date: int | None
     sub_id: str
     username: str | None = None
 
@@ -35,13 +34,13 @@ class TelegramUserSnapshot:
 class SubscriptionStateSnapshot:
     current_expires_at_ms: int | None
     trial_activated_at_ms: int | None
-    news_bonus_activated_at_ms: int | None
+    info_channel_activated_at_ms: int | None
     blocked_at: datetime | None
 
 
 class TelegramUserRepository:
-    def __init__(self, features: RolloutFeatureFlags | None = None):
-        self.features = features or RolloutFeatureFlags()
+    def __init__(self):
+        pass
 
     @log_function_call(logger)
     async def create(
@@ -160,12 +159,12 @@ class TelegramUserRepository:
             await session.commit()
 
     @log_function_call(logger)
-    async def set_news_channel_date(self, tg_id: int, news_channel_date: int) -> None:
+    async def set_info_channel_date(self, tg_id: int, info_channel_date: int) -> None:
         async with get_db_session() as session:
             state = await self._get_subscription_state_by_tg_id(session, int(tg_id))
             if state is None:
                 return
-            state.news_bonus_activated_at = self._legacy_ts_to_datetime(news_channel_date)
+            state.info_channel_activated_at = self._legacy_ts_to_datetime(info_channel_date)
             state.updated_at = datetime.now(timezone.utc)
             state.version += 1
             await session.commit()
@@ -206,6 +205,56 @@ class TelegramUserRepository:
         async with get_db_session() as session:
             rows = await self._load_users(session, tg_ids=[int(id)])
             return rows[0] if rows else None
+
+    @log_function_call(logger)
+    async def get_app_user_id(self, tg_id: int) -> int | None:
+        async with get_db_session() as session:
+            account = (
+                await session.execute(
+                    select(TelegramAccount.user_id).where(
+                        TelegramAccount.telegram_id == int(tg_id),
+                        TelegramAccount.revoked_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            return int(account) if account is not None else None
+
+    @log_function_call(logger)
+    async def is_blocked(self, tg_id: int) -> bool:
+        async with get_db_session() as session:
+            account = (
+                await session.execute(
+                    select(TelegramAccount.user_id).where(
+                        TelegramAccount.telegram_id == int(tg_id),
+                        TelegramAccount.revoked_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            if account is None:
+                return False
+
+            app_user = await session.get(AppUser, int(account))
+            return app_user is not None and self._ensure_utc(app_user.blocked_at) is not None
+
+    @log_function_call(logger)
+    async def get_standard_vpn_client_id(self, tg_id: int) -> int | None:
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(VpnClient.id)
+                .join(
+                    TelegramAccount,
+                    TelegramAccount.user_id == VpnClient.user_id,
+                )
+                .where(
+                    TelegramAccount.telegram_id == int(tg_id),
+                    TelegramAccount.revoked_at.is_(None),
+                    VpnClient.scope == PRODUCT_SCOPE_STANDARD,
+                    VpnClient.deactivated_at.is_(None),
+                )
+                .limit(1)
+            )
+            value = result.scalar_one_or_none()
+            return int(value) if value is not None else None
 
     @log_function_call(logger)
     async def get_all(self) -> List[TelegramUserSnapshot]:
@@ -268,7 +317,7 @@ class TelegramUserRepository:
                 VpnClient.subscription_external_id,
                 SubscriptionState.current_expires_at,
                 SubscriptionState.trial_activated_at,
-                SubscriptionState.news_bonus_activated_at,
+                SubscriptionState.info_channel_activated_at,
                 SubscriptionState.blocked_at,
             )
             .join(AppUser, AppUser.id == TelegramAccount.user_id)
@@ -316,7 +365,7 @@ class TelegramUserRepository:
                 user_id=int(account.user_id),
                 current_expires_at=None,
                 trial_activated_at=None,
-                news_bonus_activated_at=None,
+                info_channel_activated_at=None,
                 blocked_at=None,
                 updated_at=datetime.now(timezone.utc),
                 version=0,
@@ -379,7 +428,7 @@ class TelegramUserRepository:
                     user_id=int(user_id),
                     current_expires_at=self._legacy_ts_to_datetime(snapshot.expiration_date),
                     trial_activated_at=self._legacy_ts_to_datetime(snapshot.trial_date),
-                    news_bonus_activated_at=self._legacy_ts_to_datetime(snapshot.news_channel_date),
+                    info_channel_activated_at=self._legacy_ts_to_datetime(snapshot.info_channel_date),
                     blocked_at=None,
                     updated_at=now,
                     version=0,
@@ -389,7 +438,7 @@ class TelegramUserRepository:
 
         state.current_expires_at = self._legacy_ts_to_datetime(snapshot.expiration_date)
         state.trial_activated_at = self._legacy_ts_to_datetime(snapshot.trial_date)
-        state.news_bonus_activated_at = self._legacy_ts_to_datetime(snapshot.news_channel_date)
+        state.info_channel_activated_at = self._legacy_ts_to_datetime(snapshot.info_channel_date)
         state.blocked_at = None
         state.updated_at = now
         state.version += 1
@@ -398,7 +447,7 @@ class TelegramUserRepository:
         snapshot = SubscriptionStateSnapshot(
             current_expires_at_ms=self._datetime_to_legacy_ms(row.current_expires_at),
             trial_activated_at_ms=self._datetime_to_legacy_ms(row.trial_activated_at),
-            news_bonus_activated_at_ms=self._datetime_to_legacy_ms(row.news_bonus_activated_at),
+            info_channel_activated_at_ms=self._datetime_to_legacy_ms(row.info_channel_activated_at),
             blocked_at=self._ensure_utc(row.blocked_at),
         )
         login_date = self._datetime_to_legacy_ms(
@@ -414,7 +463,7 @@ class TelegramUserRepository:
             else snapshot.current_expires_at_ms,
             login_date=login_date,
             trial_date=snapshot.trial_activated_at_ms,
-            news_channel_date=snapshot.news_bonus_activated_at_ms,
+            info_channel_date=snapshot.info_channel_activated_at_ms,
             sub_id=str(row.subscription_external_id or ""),
             username=row.username,
         )

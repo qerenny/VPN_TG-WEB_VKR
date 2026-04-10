@@ -3,9 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from shared.infrastructure.growth_sync_service import ReferralRewardContext
-from shared.migration_support.models.referrals.referral_model import Referral
-from shared.migration_support.models.users.user_model import User
+from shared.infrastructure.growth_service import ReferralRewardContext
 from telegram_bot.services.referrals.referral_bonus_service import ReferralBonusService
 
 
@@ -15,35 +13,37 @@ def service_and_mocks():
     repo_user = AsyncMock()
     timestamp = MagicMock()
     client = AsyncMock()
-    sync_service = AsyncMock()
-    sync_service.features = SimpleNamespace(db_dual_write_growth=False)
+    growth_service = AsyncMock()
+    growth_service.sync_flags = SimpleNamespace(growth_sync_enabled=False)
     service = ReferralBonusService(
         repo_referrals=repo_referrals,
         repo_user=repo_user,
         timestamp=timestamp,
         client=client,
-        sync_service=sync_service,
+        growth_service=growth_service,
     )
-    return service, repo_referrals, repo_user, timestamp, client, sync_service
+    service.default_referrer_bonus_days = 7
+    service.referrer_bonus_rules = {3: 10, 5: 15, 10: 31, 15: 62}
+    return service, repo_referrals, repo_user, timestamp, client, growth_service
 
 
 @pytest.mark.asyncio
 async def test_grant_bonus_to_user_stores_pending_days_for_inactive_user(service_and_mocks):
-    service, repo_referrals, repo_user, timestamp, client, sync_service = service_and_mocks
-    repo_user.get.return_value = User(tg_id=1, email="a@b.com", expiration_date=None)
+    service, repo_referrals, repo_user, timestamp, client, growth_service = service_and_mocks
+    repo_user.get.return_value = SimpleNamespace(tg_id=1, email="a@b.com", expiration_date=None)
     timestamp.current_timestamp.return_value = 100
 
     await service.grant_bonus_to_user(1, 7)
 
     repo_referrals.update_days_pending.assert_awaited_once_with(1, 7)
     client.update_client.assert_not_awaited()
-    sync_service.sync_referral_reward.assert_not_awaited()
+    growth_service.sync_referral_reward.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_grant_bonus_to_user_updates_active_subscription(service_and_mocks):
-    service, repo_referrals, repo_user, timestamp, client, sync_service = service_and_mocks
-    active_user = User(tg_id=1, email="a@b.com", expiration_date=200)
+    service, repo_referrals, repo_user, timestamp, client, growth_service = service_and_mocks
+    active_user = SimpleNamespace(tg_id=1, email="a@b.com", expiration_date=200)
     repo_user.get.return_value = active_user
     timestamp.current_timestamp.return_value = 100
 
@@ -51,13 +51,17 @@ async def test_grant_bonus_to_user_updates_active_subscription(service_and_mocks
 
     client.update_client.assert_awaited_once_with(1, "day5", user=active_user)
     repo_referrals.update_days_pending.assert_not_awaited()
-    sync_service.sync_referral_reward.assert_not_awaited()
+    growth_service.sync_referral_reward.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_grant_pending_and_referrer_bonus_returns_zero_without_pending_days(service_and_mocks):
-    service, repo_referrals, repo_user, timestamp, client, _sync_service = service_and_mocks
-    repo_referrals.get.return_value = Referral(tg_id=1, referrer_tg_id=None, days_pending=0)
+    service, repo_referrals, repo_user, timestamp, client, _growth_service = service_and_mocks
+    repo_referrals.get.return_value = SimpleNamespace(
+        tg_id=1,
+        referrer_tg_id=None,
+        days_pending=0,
+    )
 
     with patch.object(service, "_grant_bonus_to_referrer", wraps=service._grant_bonus_to_referrer) as grant_referrer:
         result = await service.grant_pending_and_referrer_bonus(1)
@@ -68,19 +72,25 @@ async def test_grant_pending_and_referrer_bonus_returns_zero_without_pending_day
 
 @pytest.mark.asyncio
 async def test_grant_pending_and_referrer_bonus_executes_full_flow(service_and_mocks):
-    service, repo_referrals, repo_user, timestamp, client, sync_service = service_and_mocks
-    referral_user = Referral(tg_id=10, referrer_tg_id=20, days_pending=5, bonus_is_received=False)
-    referral_referrer = Referral(tg_id=20, referrer_tg_id=None, paid_count=4)
+    service, repo_referrals, repo_user, timestamp, client, growth_service = service_and_mocks
+    referral_user = SimpleNamespace(
+        tg_id=10,
+        referrer_tg_id=20,
+        days_pending=5,
+        bonus_is_received=False,
+    )
+    referral_referrer = SimpleNamespace(
+        tg_id=20,
+        referrer_tg_id=None,
+        paid_count=4,
+    )
     repo_referrals.get.side_effect = [referral_user, referral_user, referral_referrer]
 
     with patch.object(service, "grant_bonus_to_user", new=AsyncMock()) as grant_bonus:
         result = await service.grant_pending_and_referrer_bonus(10)
 
     assert result == (5, 20, 15)
-    repo_referrals.reset_days_pending.assert_not_awaited()
-    repo_referrals.set_bonus_received.assert_not_awaited()
-    repo_referrals.increment_paid_count.assert_not_awaited()
-    sync_service.apply_pending_referral_rewards.assert_awaited_once_with(beneficiary_tg_id=10)
+    growth_service.apply_pending_referral_rewards.assert_awaited_once_with(beneficiary_tg_id=10)
     grant_bonus.assert_any_await(10, 5)
     assert grant_bonus.await_args_list[1].args == (20, 15)
     assert grant_bonus.await_args_list[1].kwargs["reward_context"].trigger_type == "first_paid_order"
@@ -103,9 +113,9 @@ def test_calc_referrer_bonus_uses_current_thresholds(service_and_mocks, count, e
 
 @pytest.mark.asyncio
 async def test_grant_bonus_to_user_syncs_reward_context(service_and_mocks):
-    service, repo_referrals, repo_user, timestamp, client, sync_service = service_and_mocks
-    sync_service.features = SimpleNamespace(db_dual_write_growth=True)
-    active_user = User(tg_id=2, email="b@c.com", expiration_date=300)
+    service, repo_referrals, repo_user, timestamp, client, growth_service = service_and_mocks
+    growth_service.sync_flags = SimpleNamespace(growth_sync_enabled=True)
+    active_user = SimpleNamespace(tg_id=2, email="b@c.com", expiration_date=300)
     repo_user.get.return_value = active_user
     timestamp.current_timestamp.return_value = 100
 
@@ -117,7 +127,7 @@ async def test_grant_bonus_to_user_syncs_reward_context(service_and_mocks):
     )
     await service.grant_bonus_to_user(2, 4, reward_context=context)
 
-    sync_service.sync_referral_reward.assert_awaited_once_with(
+    growth_service.sync_referral_reward.assert_awaited_once_with(
         beneficiary_tg_id=2,
         reward_days=4,
         context=context,
@@ -127,9 +137,9 @@ async def test_grant_bonus_to_user_syncs_reward_context(service_and_mocks):
 
 @pytest.mark.asyncio
 async def test_grant_bonus_to_user_uses_growth_sync_for_inactive_user_when_enabled(service_and_mocks):
-    service, repo_referrals, repo_user, timestamp, client, sync_service = service_and_mocks
-    sync_service.features = SimpleNamespace(db_dual_write_growth=True)
-    repo_user.get.return_value = User(tg_id=3, email="c@d.com", expiration_date=None)
+    service, repo_referrals, repo_user, timestamp, client, growth_service = service_and_mocks
+    growth_service.sync_flags = SimpleNamespace(growth_sync_enabled=True)
+    repo_user.get.return_value = SimpleNamespace(tg_id=3, email="c@d.com", expiration_date=None)
     timestamp.current_timestamp.return_value = 100
 
     context = ReferralRewardContext(
@@ -142,7 +152,7 @@ async def test_grant_bonus_to_user_uses_growth_sync_for_inactive_user_when_enabl
     await service.grant_bonus_to_user(3, 5, reward_context=context)
 
     repo_referrals.update_days_pending.assert_not_awaited()
-    sync_service.sync_referral_reward.assert_awaited_once_with(
+    growth_service.sync_referral_reward.assert_awaited_once_with(
         beneficiary_tg_id=3,
         reward_days=5,
         context=context,

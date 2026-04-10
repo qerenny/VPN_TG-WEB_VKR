@@ -21,7 +21,7 @@ async def test_process_status_update_payment_not_found():
     )
 
     result = await service.process_status_update(
-        method="yookassa",
+        method="external_card",
         payment_id="abc",
         status="succeeded",
     )
@@ -36,10 +36,9 @@ async def test_process_status_update_payment_not_found():
 async def test_process_status_update_pending_only_updates_db():
     repo = AsyncMock()
     redis_client = AsyncMock()
-    sync_service = AsyncMock()
     repo.get_by_payment_id.return_value = SimpleNamespace(
         payment_id="abc",
-        method="cryptopay",
+        method="external_wallet",
         status="new",
         confirmed=False,
     )
@@ -50,11 +49,10 @@ async def test_process_status_update_pending_only_updates_db():
         ready_queue_key="ready",
         dedupe_prefix="dedupe",
         dedupe_ttl_seconds=120,
-        sync_service=sync_service,
     )
 
     result = await service.process_status_update(
-        method="cryptopay",
+        method="external_wallet",
         payment_id="abc",
         status="pending",
         payload={"payload": {"invoice_id": "abc", "status": "pending"}},
@@ -67,7 +65,6 @@ async def test_process_status_update_pending_only_updates_db():
         status="pending",
         confirmed=False,
     )
-    sync_service.sync_legacy_payment.assert_not_awaited()
     redis_client.set.assert_not_awaited()
     redis_client.rpush.assert_not_awaited()
 
@@ -78,7 +75,7 @@ async def test_process_status_update_method_mismatch_is_ignored():
     redis_client = AsyncMock()
     repo.get_by_payment_id.return_value = SimpleNamespace(
         payment_id="abc",
-        method="yookassa",
+        method="external_card",
     )
 
     service = PaymentWebhookService(
@@ -90,7 +87,7 @@ async def test_process_status_update_method_mismatch_is_ignored():
     )
 
     result = await service.process_status_update(
-        method="cryptopay",
+        method="external_wallet",
         payment_id="abc",
         status="paid",
     )
@@ -107,7 +104,7 @@ async def test_process_status_update_paid_enqueues_once():
     redis_client = AsyncMock()
     repo.get_by_payment_id.return_value = SimpleNamespace(
         payment_id="abc",
-        method="cryptopay",
+        method="external_wallet",
     )
     redis_client.set.return_value = True
 
@@ -120,7 +117,7 @@ async def test_process_status_update_paid_enqueues_once():
     )
 
     result = await service.process_status_update(
-        method="cryptopay",
+        method="external_wallet",
         payment_id="abc",
         status="paid",
     )
@@ -142,7 +139,7 @@ async def test_process_status_update_paid_not_enqueued_when_duplicate():
     redis_client = AsyncMock()
     repo.get_by_payment_id.return_value = SimpleNamespace(
         payment_id="abc",
-        method="yookassa",
+        method="external_card",
     )
     redis_client.set.return_value = False
 
@@ -155,7 +152,7 @@ async def test_process_status_update_paid_not_enqueued_when_duplicate():
     )
 
     result = await service.process_status_update(
-        method="yookassa",
+        method="external_card",
         payment_id="abc",
         status="succeeded",
     )

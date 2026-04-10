@@ -8,13 +8,13 @@ from sqlmodel import select
 from shared.config.config import API_SERVERS
 from shared.config.database.session import get_db_session
 from shared.constants.vpn import VPN_PROVIDER_3X_UI
-from shared.infrastructure.payment_plan_catalog import get_plan_seed_by_legacy_payload
+from shared.infrastructure.payment_plan_catalog import get_plan_seed_by_payload
 from shared.models.subscriptions.subscription_state_model import SubscriptionState
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.web_account_model import WebAccount
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.product_constants import ENTITLEMENT_KIND_TIME, PRODUCT_SCOPE_STANDARD
-from shared.utils.client_identity import build_vpn_client_email
+from shared.utils.client_identity import build_vpn_client_email, resolve_user_identity_seed
 from shared.utils.logging_utils import logger
 from telegram_bot.infrastructure.api.client_manager import ClientManager
 from telegram_bot.shared.utils.uuid_generator import UUIDGenerator
@@ -44,7 +44,7 @@ class StandardUserSubscriptionService:
         user_id: int,
         product: str,
     ) -> StandardUserActivationResult:
-        seed = get_plan_seed_by_legacy_payload(product)
+        seed = get_plan_seed_by_payload(product)
         if seed is None:
             raise ValueError(f"Unsupported product: {product!r}")
         if seed.scope != PRODUCT_SCOPE_STANDARD or seed.entitlement_kind != ENTITLEMENT_KIND_TIME:
@@ -60,12 +60,14 @@ class StandardUserSubscriptionService:
         *,
         user_id: int,
         duration_days: int,
+        replace_existing: bool = False,
     ) -> StandardUserActivationResult:
         if int(duration_days) <= 0:
             raise ValueError(f"duration_days must be positive, got {duration_days}")
         return await self._activate_duration(
             user_id=user_id,
             duration_days=int(duration_days),
+            replace_existing=bool(replace_existing),
         )
 
     async def _activate_duration(
@@ -73,24 +75,22 @@ class StandardUserSubscriptionService:
         *,
         user_id: int,
         duration_days: int,
+        replace_existing: bool = False,
     ) -> StandardUserActivationResult:
         async with get_db_session() as session:
-            web_account = (
-                await session.execute(
-                    select(WebAccount).where(
-                        WebAccount.user_id == int(user_id),
-                        WebAccount.revoked_at.is_(None),
-                    )
-                )
-            ).scalar_one_or_none()
-            if web_account is None:
-                raise ValueError(f"Web account not found for user_id={user_id}")
-
             telegram_account = (
                 await session.execute(
                     select(TelegramAccount).where(
                         TelegramAccount.user_id == int(user_id),
                         TelegramAccount.revoked_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            web_account = (
+                await session.execute(
+                    select(WebAccount).where(
+                        WebAccount.user_id == int(user_id),
+                        WebAccount.revoked_at.is_(None),
                     )
                 )
             ).scalar_one_or_none()
@@ -109,14 +109,21 @@ class StandardUserSubscriptionService:
             new_expires_at = self._extend_expiry(
                 current_expires_at=current_expires_at,
                 duration_days=int(duration_days),
+                replace_existing=bool(replace_existing),
             )
             tg_id = int(telegram_account.telegram_id) if telegram_account is not None else 0
 
             if vpn_client is None:
                 client_uuid = self.uuidgen.generate_id()
                 subscription_id = self.uuidgen.generate_id()
+                identity_seed = resolve_user_identity_seed(
+                    web_email=str(web_account.email) if web_account is not None else None,
+                    telegram_username=getattr(telegram_account, "username", None),
+                    telegram_id=int(telegram_account.telegram_id) if telegram_account is not None else None,
+                    user_id=int(user_id),
+                )
                 external_email = build_vpn_client_email(
-                    seed=str(web_account.email),
+                    seed=identity_seed,
                     client_uuid=client_uuid,
                     scope=PRODUCT_SCOPE_STANDARD,
                 )
@@ -147,16 +154,36 @@ class StandardUserSubscriptionService:
                 await session.flush()
                 was_created = True
             else:
-                await self.client_manager.update_scoped_client(
-                    server_pool=API_SERVERS,
-                    cache_namespace=PRODUCT_SCOPE_STANDARD,
-                    tg_id=tg_id,
-                    client_uuid=str(vpn_client.external_client_uuid),
-                    email=str(vpn_client.external_email),
-                    sub_id=str(vpn_client.subscription_external_id),
-                    expires_at=self._datetime_to_legacy_ms(new_expires_at),
-                    total_bytes=0,
-                )
+                client_uuid = str(vpn_client.external_client_uuid)
+                external_email = str(vpn_client.external_email)
+                subscription_id = str(vpn_client.subscription_external_id)
+                client_exists = await self.client_manager.client_exists(client_uuid)
+                if client_exists:
+                    await self.client_manager.update_scoped_client(
+                        server_pool=API_SERVERS,
+                        cache_namespace=PRODUCT_SCOPE_STANDARD,
+                        tg_id=tg_id,
+                        client_uuid=client_uuid,
+                        email=external_email,
+                        sub_id=subscription_id,
+                        expires_at=self._datetime_to_legacy_ms(new_expires_at),
+                        total_bytes=0,
+                    )
+                else:
+                    logger.warning(
+                        f"Standard vpn_client missing in remote panel for user_id={user_id}, "
+                        f"vpn_client_id={vpn_client.id}; re-provisioning with existing identifiers"
+                    )
+                    await self.client_manager.add_scoped_client(
+                        server_pool=API_SERVERS,
+                        cache_namespace=PRODUCT_SCOPE_STANDARD,
+                        tg_id=tg_id,
+                        client_uuid=client_uuid,
+                        email=external_email,
+                        sub_id=subscription_id,
+                        expires_at=self._datetime_to_legacy_ms(new_expires_at),
+                        total_bytes=0,
+                    )
                 vpn_client.updated_at = datetime.now(timezone.utc)
                 was_created = False
 
@@ -165,7 +192,7 @@ class StandardUserSubscriptionService:
                     user_id=int(user_id),
                     current_expires_at=new_expires_at,
                     trial_activated_at=None,
-                    news_bonus_activated_at=None,
+                    info_channel_activated_at=None,
                     blocked_at=None,
                     updated_at=datetime.now(timezone.utc),
                     version=0,
@@ -196,10 +223,10 @@ class StandardUserSubscriptionService:
         )
 
     @staticmethod
-    def _extend_expiry(*, current_expires_at: datetime | None, duration_days: int) -> datetime:
+    def _extend_expiry(*, current_expires_at: datetime | None, duration_days: int, replace_existing: bool = False) -> datetime:
         now = datetime.now(timezone.utc)
         base = now
-        if current_expires_at is not None:
+        if not replace_existing and current_expires_at is not None:
             normalized = (
                 current_expires_at
                 if current_expires_at.tzinfo is not None
@@ -208,6 +235,50 @@ class StandardUserSubscriptionService:
             if normalized > now:
                 base = normalized
         return base + timedelta(days=int(duration_days))
+
+    async def revoke_access(self, *, user_id: int) -> bool:
+        async with get_db_session() as session:
+            telegram_account = (
+                await session.execute(
+                    select(TelegramAccount).where(
+                        TelegramAccount.user_id == int(user_id),
+                        TelegramAccount.revoked_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            vpn_client = (
+                await session.execute(
+                    select(VpnClient).where(
+                        VpnClient.user_id == int(user_id),
+                        VpnClient.scope == PRODUCT_SCOPE_STANDARD,
+                        VpnClient.deactivated_at.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            state = await session.get(SubscriptionState, int(user_id))
+            if state is None:
+                return False
+            now = datetime.now(timezone.utc)
+            state.current_expires_at = now
+            state.blocked_at = None
+            state.updated_at = now
+            state.version += 1
+            session.add(state)
+            await session.commit()
+
+        if vpn_client is not None:
+            tg_id = int(telegram_account.telegram_id) if telegram_account is not None else 0
+            await self.client_manager.update_scoped_client(
+                server_pool=API_SERVERS,
+                cache_namespace=PRODUCT_SCOPE_STANDARD,
+                tg_id=tg_id,
+                client_uuid=str(vpn_client.external_client_uuid),
+                email=str(vpn_client.external_email),
+                sub_id=str(vpn_client.subscription_external_id),
+                expires_at=self._datetime_to_legacy_ms(now),
+                total_bytes=0,
+            )
+        return True
 
     @staticmethod
     def _datetime_to_legacy_ms(value: datetime) -> int:

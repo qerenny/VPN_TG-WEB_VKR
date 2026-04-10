@@ -8,10 +8,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func as sa_func, select
 
 from shared.config.database.session import get_db_session
-from shared.config.settings import get_product_feature_settings
+from shared.config.settings import get_effective_product_feature_settings
 from shared.config.config import (
     BACKEND_TELEGRAM_SUBSCRIPTION_LINK,
-    BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK,
+    BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK,
     BOT_REFERRAL_LINK,
 )
 from shared.constants.payments import (
@@ -24,6 +24,7 @@ from shared.constants.payments import (
 )
 from shared.models.growth.referral_edge_model import ReferralEdge
 from shared.models.growth.referral_reward_model import ReferralReward
+from shared.models.access.access_grant_model import AccessGrant
 from shared.models.payments.payment_attempt_model import PaymentAttempt
 from shared.models.payments.payment_order_model import PaymentOrder
 from shared.models.payments.plan_model import Plan
@@ -34,7 +35,9 @@ from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.user_profile_model import UserProfile
 from shared.models.users.web_account_model import WebAccount
 from shared.models.vpn.vpn_client_model import VpnClient
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.infrastructure.access.access_registry_repository import AccessRegistryRepository
+from shared.utils.access_template_labels import format_access_template_label
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.timestamp_utils import TimestampUtils
 
 
@@ -50,8 +53,14 @@ class AccountProfileSnapshot:
 
 
 class AccountService:
-    def __init__(self, *, timestamp: TimestampUtils) -> None:
+    def __init__(
+        self,
+        *,
+        timestamp: TimestampUtils,
+        access_registry_repository: AccessRegistryRepository | None = None,
+    ) -> None:
         self.timestamp = timestamp
+        self.access_registry_repository = access_registry_repository
 
     async def get_profile(self, *, user_id: int) -> AccountProfileSnapshot:
         async with get_db_session() as session:
@@ -203,6 +212,36 @@ class AccountService:
             },
         }
 
+    async def get_access_grants(self, *, user_id: int, limit: int = 20) -> list[dict]:
+        async with get_db_session() as session:
+            now = datetime.now(timezone.utc)
+            expired_rows = (
+                await session.execute(
+                    select(AccessGrant).where(
+                        AccessGrant.user_id == int(user_id),
+                        AccessGrant.status == "active",
+                        AccessGrant.expires_at.is_not(None),
+                        AccessGrant.expires_at < now,
+                    )
+                )
+            ).scalars().all()
+            for row in expired_rows:
+                row.status = "expired"
+                row.metadata_json = {**dict(row.metadata_json or {}), "expired_at": now.isoformat()}
+                session.add(row)
+            if expired_rows:
+                await session.commit()
+            rows = (
+                await session.execute(
+                    select(AccessGrant)
+                    .where(AccessGrant.user_id == int(user_id))
+                    .order_by(desc(AccessGrant.created_at), desc(AccessGrant.id))
+                    .limit(max(1, min(int(limit), 100)))
+                )
+            ).scalars().all()
+
+        return [self._serialize_access_grant(row) for row in rows]
+
     async def get_subscriptions(self, *, user_id: int) -> dict:
         async with get_db_session() as session:
             standard_client = (
@@ -214,40 +253,46 @@ class AccountService:
                     )
                 )
             ).scalar_one_or_none()
-            whitelist_client = (
+            traffic_limited_client = (
                 await session.execute(
                     select(VpnClient).where(
                         VpnClient.user_id == int(user_id),
-                        VpnClient.scope == PRODUCT_SCOPE_WHITELIST,
+                        VpnClient.scope == PRODUCT_SCOPE_TRAFFIC_LIMITED,
                         VpnClient.deactivated_at.is_(None),
                     )
                 )
             ).scalar_one_or_none()
             standard_state = await session.get(SubscriptionState, int(user_id))
-            whitelist_state = (
-                await session.get(TrafficState, int(whitelist_client.id))
-                if whitelist_client is not None
+            traffic_limited_state = (
+                await session.get(TrafficState, int(traffic_limited_client.id))
+                if traffic_limited_client is not None
                 else None
             )
 
         standard_expires_at = getattr(standard_state, "current_expires_at", None)
         standard_expires_at_ms = self._datetime_to_legacy_ms(standard_expires_at)
-        whitelist_expires_at = getattr(whitelist_state, "expires_at", None)
-        whitelist_expires_at_ms = self._datetime_to_legacy_ms(whitelist_expires_at)
-        whitelist_remaining = int(getattr(whitelist_state, "remaining_bytes", 0) or 0)
-        whitelist_blocked = bool(getattr(whitelist_state, "is_blocked", False))
+        traffic_limited_expires_at = getattr(traffic_limited_state, "expires_at", None)
+        traffic_limited_expires_at_ms = self._datetime_to_legacy_ms(traffic_limited_expires_at)
+        traffic_limited_remaining = int(getattr(traffic_limited_state, "remaining_bytes", 0) or 0)
+        traffic_limited_blocked = bool(getattr(traffic_limited_state, "is_blocked", False))
         standard_is_active = bool(
             standard_expires_at_ms and int(standard_expires_at_ms) > self.timestamp.current_timestamp()
         )
-        whitelist_is_active = bool(
-            whitelist_client is not None
-            and not whitelist_blocked
-            and whitelist_remaining > 0
+        traffic_limited_is_active = bool(
+            traffic_limited_client is not None
+            and not traffic_limited_blocked
+            and traffic_limited_remaining > 0
             and (
-                whitelist_expires_at_ms is None
-                or int(whitelist_expires_at_ms) > self.timestamp.current_timestamp()
+                traffic_limited_expires_at_ms is None
+                or int(traffic_limited_expires_at_ms) > self.timestamp.current_timestamp()
             )
         )
+
+        registry_managed = False
+        registry_entry = None
+        if self.access_registry_repository is not None:
+            registry_entry = await self.access_registry_repository.find_matching_entry_for_user(user_id=int(user_id))
+            registry_managed = registry_entry is not None
 
         return {
             "standard": {
@@ -269,43 +314,72 @@ class AccountService:
                     standard_client, "subscription_external_id", None
                 ),
             },
-            "whitelist": {
-                "scope": PRODUCT_SCOPE_WHITELIST,
-                "is_active": whitelist_is_active,
-                "expires_at": self._isoformat(whitelist_expires_at),
+            "traffic_limited": {
+                "scope": PRODUCT_SCOPE_TRAFFIC_LIMITED,
+                "is_active": traffic_limited_is_active,
+                "expires_at": self._isoformat(traffic_limited_expires_at),
                 "human_view_expiration_remaining": (
-                    self.timestamp.calculate_time_difference(int(whitelist_expires_at_ms))
-                    if whitelist_expires_at_ms
+                    self.timestamp.calculate_time_difference(int(traffic_limited_expires_at_ms))
+                    if traffic_limited_expires_at_ms
                     else None
                 ),
                 "subscription_import_url": (
-                    f"{BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK}?uuid={whitelist_client.subscription_external_id}"
-                    if whitelist_client is not None and whitelist_is_active
+                    f"{BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK}?uuid={traffic_limited_client.subscription_external_id}"
+                    if traffic_limited_client is not None and traffic_limited_is_active
                     else None
                 ),
-                "external_email": getattr(whitelist_client, "external_email", None),
+                "external_email": getattr(traffic_limited_client, "external_email", None),
                 "subscription_external_id": getattr(
-                    whitelist_client, "subscription_external_id", None
+                    traffic_limited_client, "subscription_external_id", None
                 ),
                 "traffic_allocated_bytes": int(
-                    getattr(whitelist_state, "allocated_bytes", 0) or 0
+                    getattr(traffic_limited_state, "allocated_bytes", 0) or 0
                 )
-                if whitelist_state is not None
+                if traffic_limited_state is not None
                 else None,
-                "traffic_used_bytes": int(getattr(whitelist_state, "used_bytes", 0) or 0)
-                if whitelist_state is not None
+                "traffic_used_bytes": int(getattr(traffic_limited_state, "used_bytes", 0) or 0)
+                if traffic_limited_state is not None
                 else None,
-                "traffic_remaining_bytes": whitelist_remaining if whitelist_state is not None else None,
+                "traffic_remaining_bytes": traffic_limited_remaining if traffic_limited_state is not None else None,
                 "human_view_traffic_allocated": self._human_view_traffic_bytes(
-                    getattr(whitelist_state, "allocated_bytes", None)
+                    getattr(traffic_limited_state, "allocated_bytes", None)
                 ),
                 "human_view_traffic_used": self._human_view_traffic_bytes(
-                    getattr(whitelist_state, "used_bytes", None)
+                    getattr(traffic_limited_state, "used_bytes", None)
                 ),
                 "human_view_traffic_remaining": self._human_view_traffic_bytes(
-                    getattr(whitelist_state, "remaining_bytes", None)
+                    getattr(traffic_limited_state, "remaining_bytes", None)
                 ),
             },
+            "access_policy": {
+                "registry_managed": registry_managed,
+                "registry_template_code": getattr(registry_entry, "template_code", None),
+                "registry_template_label": (
+                    format_access_template_label(str(registry_entry.template_code))
+                    if registry_entry is not None
+                    else None
+                ),
+            },
+        }
+
+    @staticmethod
+    def _serialize_access_grant(row: AccessGrant) -> dict:
+        return {
+            "id": int(row.id),
+            "template_code": str(row.template_code),
+            "template_label": format_access_template_label(str(row.template_code)),
+            "scope": str(row.scope),
+            "entitlement_kind": str(row.entitlement_kind),
+            "source_type": str(row.source_type),
+            "source_ref": row.source_ref,
+            "status": str(row.status),
+            "expires_at": row.expires_at.isoformat() if row.expires_at is not None else None,
+            "quota_bytes": int(row.quota_bytes) if row.quota_bytes is not None else None,
+            "granted_by_user_id": int(row.granted_by_user_id) if row.granted_by_user_id is not None else None,
+            "created_at": row.created_at.isoformat(),
+            "activated_at": row.activated_at.isoformat() if row.activated_at is not None else None,
+            "revoked_at": row.revoked_at.isoformat() if getattr(row, "revoked_at", None) is not None else None,
+            "metadata": dict(row.metadata_json or {}),
         }
 
     async def get_payments(self, *, user_id: int, limit: int = 20) -> list[dict]:
@@ -349,7 +423,7 @@ class AccountService:
         return payments
 
     async def get_plan_catalog(self) -> dict:
-        features = get_product_feature_settings()
+        features = get_effective_product_feature_settings()
         async with get_db_session() as session:
             plans = (
                 await session.execute(
@@ -364,7 +438,7 @@ class AccountService:
             ).scalars().all()
 
         standard: list[dict] = []
-        whitelist: list[dict] = []
+        traffic_limited: list[dict] = []
 
         for plan in plans:
             item = {
@@ -378,15 +452,16 @@ class AccountService:
                 "currency": str(plan.currency or ""),
                 "human_view_traffic_quota": self._human_view_traffic_bytes(plan.quota_bytes),
             }
-            if str(plan.scope) == PRODUCT_SCOPE_WHITELIST:
+            if str(plan.scope) == PRODUCT_SCOPE_TRAFFIC_LIMITED:
                 if features.traffic_limited_config_enabled:
-                    whitelist.append(item)
+                    traffic_limited.append(item)
             else:
-                standard.append(item)
+                if features.standard_config_enabled:
+                    standard.append(item)
 
         return {
             "standard": standard,
-            "whitelist": whitelist,
+            "traffic_limited": traffic_limited,
         }
 
     async def _get_web_account(self, session, user_id: int) -> WebAccount | None:

@@ -22,7 +22,6 @@ class SubscriptionPromoHandler:
         start_handler: StartHandler,
         promo_repo: PromoCodeUsageRepository,
         promo_code_repo: PromoCodeRepository,
-        sync_service=None,
     ):
         self.subscription_flow_service = subscription_flow_service
         self.start_handler = start_handler

@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from shared.config.config import (
     BACKEND_TELEGRAM_SUBSCRIPTION_LINK,
-    BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK,
+    BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK,
     BOT_SUPPORT_TG_LINK,
 )
 from shared.config.database.session import get_db_session
@@ -17,13 +17,13 @@ from shared.infrastructure.users.telegram_user_repository import TelegramUserRep
 from shared.models.traffic.traffic_state_model import TrafficState
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.vpn.vpn_client_model import VpnClient
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.jwt_encoder import JWTEncoder
 from shared.utils.timestamp_utils import TimestampUtils
 
 
 @dataclass(frozen=True, slots=True)
-class WhiteListSubscriptionSnapshot:
+class TrafficLimitedSubscriptionSnapshot:
     external_email: str
     subscription_external_id: str
     expires_at_ms: int | None
@@ -64,8 +64,8 @@ class SubscriptionManagerService:
                     tg_id=tg_id,
                     email=str(email),
                 )
-            if resolved_scope == PRODUCT_SCOPE_WHITELIST:
-                return await self._get_whitelist_subscription_formatted_info(
+            if resolved_scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+                return await self._get_traffic_limited_subscription_formatted_info(
                     tg_id=tg_id,
                     email=str(email),
                 )
@@ -114,21 +114,21 @@ class SubscriptionManagerService:
             "human_view_traffic_remaining": None,
         }
 
-    async def _get_whitelist_subscription_formatted_info(
+    async def _get_traffic_limited_subscription_formatted_info(
         self,
         *,
         tg_id: int,
         email: str,
     ) -> dict:
-        snapshot = await self._get_whitelist_snapshot(tg_id)
+        snapshot = await self._get_traffic_limited_snapshot(tg_id)
         if snapshot is None:
-            raise HTTPException(status_code=404, detail="WhiteList subscription not found")
+            raise HTTPException(status_code=404, detail="TrafficLimited subscription not found")
 
         if snapshot.external_email != email:
             raise HTTPException(status_code=404, detail="Email mismatch")
 
         return {
-            "scope": PRODUCT_SCOPE_WHITELIST,
+            "scope": PRODUCT_SCOPE_TRAFFIC_LIMITED,
             "human_view_expiration_remaining": await self._human_view_expiration_remaining(
                 snapshot.expires_at_ms
             ),
@@ -137,9 +137,9 @@ class SubscriptionManagerService:
             ),
             "sub_link": await self._create_sub_link(
                 snapshot.subscription_external_id,
-                scope=PRODUCT_SCOPE_WHITELIST,
+                scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
             ),
-            "sub_is_active": self._whitelist_sub_is_active(snapshot),
+            "sub_is_active": self._traffic_limited_sub_is_active(snapshot),
             "support_link": BOT_SUPPORT_TG_LINK,
             "traffic_allocated_bytes": snapshot.allocated_bytes,
             "traffic_used_bytes": snapshot.used_bytes,
@@ -149,10 +149,10 @@ class SubscriptionManagerService:
             "human_view_traffic_remaining": self._human_view_traffic_bytes(snapshot.remaining_bytes),
         }
 
-    async def _get_whitelist_snapshot(
+    async def _get_traffic_limited_snapshot(
         self,
         tg_id: int,
-    ) -> WhiteListSubscriptionSnapshot | None:
+    ) -> TrafficLimitedSubscriptionSnapshot | None:
         async with get_db_session() as session:
             telegram_account = (
                 await session.execute(
@@ -169,7 +169,7 @@ class SubscriptionManagerService:
                 await session.execute(
                     select(VpnClient).where(
                         VpnClient.user_id == int(telegram_account.user_id),
-                        VpnClient.scope == PRODUCT_SCOPE_WHITELIST,
+                        VpnClient.scope == PRODUCT_SCOPE_TRAFFIC_LIMITED,
                         VpnClient.deactivated_at.is_(None),
                     )
                 )
@@ -179,7 +179,7 @@ class SubscriptionManagerService:
 
             state = await session.get(TrafficState, int(vpn_client.id))
 
-        return WhiteListSubscriptionSnapshot(
+        return TrafficLimitedSubscriptionSnapshot(
             external_email=str(vpn_client.external_email),
             subscription_external_id=str(vpn_client.subscription_external_id),
             expires_at_ms=self._datetime_to_legacy_ms(getattr(state, "expires_at", None)),
@@ -201,8 +201,8 @@ class SubscriptionManagerService:
 
     async def _create_sub_link(self, sub_id: str, *, scope: str) -> str:
         base_url = BACKEND_TELEGRAM_SUBSCRIPTION_LINK
-        if scope == PRODUCT_SCOPE_WHITELIST:
-            base_url = BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK
+        if scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+            base_url = BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK
         return f"{base_url}?uuid={sub_id}"
 
     async def _sub_is_active(self, expiration_date: int | None) -> bool | None:
@@ -210,7 +210,7 @@ class SubscriptionManagerService:
             return None
         return int(expiration_date) > self.timestamp.current_timestamp()
 
-    def _whitelist_sub_is_active(self, snapshot: WhiteListSubscriptionSnapshot) -> bool:
+    def _traffic_limited_sub_is_active(self, snapshot: TrafficLimitedSubscriptionSnapshot) -> bool:
         if snapshot.is_blocked or snapshot.remaining_bytes <= 0:
             return False
         if not snapshot.expires_at_ms:

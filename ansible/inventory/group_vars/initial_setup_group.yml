@@ -2,8 +2,7 @@ basic_ssh_port: 22
 basic_ansible_user: root
 basic_ansible_private_key_file: "{{ lookup('env', 'HOME') + '/.ssh/id_rsa' }}"
 server_baseline_ssh_port: 17811
-server_baseline_user: Rune-Smith
+server_baseline_user: remote-access-user
 server_baseline_public_key_file: "{{ lookup('env', 'HOME') + '/.ssh/id_rsa.pub' }}"
 
-main_01_password: "password"
-
+main_01_password: "{{ vault_main_01_password | default('change-me') }}"

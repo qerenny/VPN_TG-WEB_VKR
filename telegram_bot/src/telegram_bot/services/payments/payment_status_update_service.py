@@ -50,22 +50,13 @@ class PaymentStatusChecker:
         repo: PaymentRepository,
         payment_fulfillment_service: PaymentFulfillmentService,
         gateways: dict[str, PaymentGateway] | None = None,
-        yookassa: PaymentGateway | None = None,
-        cryptopay: PaymentGateway | None = None,
         scan_interval_seconds: int = PAYMENT_STATUS_SCAN_INTERVAL_SECONDS,
-        sync_service=None,
     ):
         self.repo = repo
         self.gateways: dict[str, PaymentGateway] = {
             str(key).strip().lower(): value
             for key, value in (gateways or {}).items()
         }
-        if yookassa is not None:
-            self.gateways.setdefault("yookassa", yookassa)
-        if cryptopay is not None:
-            self.gateways.setdefault("cryptopay", cryptopay)
-        self.yookassa = self.gateways.get("yookassa")
-        self.cryptopay = self.gateways.get("cryptopay")
         self.payment_fulfillment_service = payment_fulfillment_service
         self.scan_interval_seconds = scan_interval_seconds
 
@@ -130,12 +121,7 @@ class PaymentStatusChecker:
                         f"Unsupported payment method: {method} for payment {payment_id}"
                     )
                     continue
-                lookup_payment_id = (
-                    int(str(payment_id))
-                    if method_key == "cryptopay"
-                    else str(payment_id)
-                )
-                tasks.append(gateway.find_payment_status(lookup_payment_id))
+                tasks.append(gateway.find_payment_status(str(payment_id)))
                 valid_payments_for_check.append(payment)
             except Exception as e:
                 logger.error(f"Error preparing task for payment {payment_id}: {e}")

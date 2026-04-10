@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -95,12 +95,9 @@ class PaymentRuntimeSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class RolloutFeatureFlags:
-    db_dual_write_identity: bool = False
-    db_dual_write_subscription: bool = False
-    db_dual_write_payments: bool = False
-    db_dual_write_growth: bool = False
-    db_dual_write_vpn_topology: bool = False
+class RuntimeSyncFlags:
+    growth_sync_enabled: bool = False
+    vpn_topology_sync_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,12 +117,19 @@ class ProductSettings:
 
 @dataclass(frozen=True, slots=True)
 class ProductFeatureSettings:
+    access_requests_enabled: bool
+    access_registry_enabled: bool
+    access_admin_override_enabled: bool
+    access_request_pending_ttl_hours: int
+    access_lifecycle_scan_interval_seconds: int
+    access_auto_renew_window_hours: int
     commerce_enabled: bool
     referrals_enabled: bool
     promos_enabled: bool
     web_purchase_enabled: bool
     telegram_bot_enabled: bool
-    telegram_proxy_enabled: bool
+    mail_enabled: bool
+    standard_config_enabled: bool
     traffic_limited_config_enabled: bool
 
 
@@ -217,21 +221,16 @@ def _setting_bool(section: dict, key: str, default: bool) -> bool:
 
 def _load_product_settings() -> ProductSettings:
     product = _get_section("product")
-    frontend = _get_section("frontend")
 
     support_name = _setting_text(product, "support_name", "Support")
-    support_link = _setting_text(
-        product,
-        "support_link",
-        legacy_config.BOT_SUPPORT_TG_LINK,
-    )
+    support_link = legacy_config.BOT_SUPPORT_TG_LINK
 
     docs_links = product.get("docs_links")
     if not isinstance(docs_links, dict):
         docs_links = {
-            "faq": frontend.get("faq_link", ""),
-            "devices": frontend.get("devices_link", ""),
-            "about": frontend.get("about_link", ""),
+            "faq": "",
+            "devices": "",
+            "about": "",
         }
 
     return ProductSettings(
@@ -270,15 +269,28 @@ def _load_feature_settings() -> ProductFeatureSettings:
     frontend = _get_section("frontend")
 
     return ProductFeatureSettings(
+        access_requests_enabled=_setting_bool(features, "access_requests_enabled", False),
+        access_registry_enabled=_setting_bool(features, "access_registry_enabled", False),
+        access_admin_override_enabled=_setting_bool(features, "access_admin_override_enabled", False),
+        access_request_pending_ttl_hours=max(1, int(features.get("access_request_pending_ttl_hours", 72) or 72)),
+        access_lifecycle_scan_interval_seconds=max(
+            30,
+            int(features.get("access_lifecycle_scan_interval_seconds", 60) or 60),
+        ),
+        access_auto_renew_window_hours=max(
+            1,
+            int(features.get("access_auto_renew_window_hours", 24) or 24),
+        ),
         commerce_enabled=_setting_bool(features, "commerce_enabled", True),
         referrals_enabled=_setting_bool(features, "referrals_enabled", True),
         promos_enabled=_setting_bool(features, "promos_enabled", True),
         web_purchase_enabled=_setting_bool(features, "web_purchase_enabled", True),
         telegram_bot_enabled=_setting_bool(features, "telegram_bot_enabled", True),
-        telegram_proxy_enabled=_setting_bool(
+        mail_enabled=_setting_bool(features, "mail_enabled", legacy_config.MAIL_ENABLED),
+        standard_config_enabled=_setting_bool(
             features,
-            "telegram_proxy_enabled",
-            bool(str(frontend.get("telegram_proxy_url", "")).strip()),
+            "standard_config_enabled",
+            legacy_config.FEATURE_STANDARD_CONFIG_ENABLED,
         ),
         traffic_limited_config_enabled=_setting_bool(
             features,
@@ -420,6 +432,29 @@ def get_product_settings() -> ProductSettings:
 
 def get_product_feature_settings() -> ProductFeatureSettings:
     return load_app_settings().features
+
+
+def get_effective_product_feature_settings() -> ProductFeatureSettings:
+    features = get_product_feature_settings()
+    backend = get_backend_settings()
+    commerce_enabled = bool(features.commerce_enabled)
+    return replace(
+        features,
+        referrals_enabled=bool(features.referrals_enabled) and commerce_enabled,
+        promos_enabled=bool(features.promos_enabled) and commerce_enabled,
+        mail_enabled=(
+            bool(features.mail_enabled)
+            and bool(backend.mail.enabled)
+            and str(backend.mail.provider).strip().lower() != "noop"
+        ),
+        standard_config_enabled=(
+            bool(features.standard_config_enabled) and bool(legacy_config.API_SERVERS)
+        ),
+        traffic_limited_config_enabled=(
+            bool(features.traffic_limited_config_enabled)
+            and bool(legacy_config.TRAFFIC_LIMITED_API_SERVERS)
+        ),
+    )
 
 
 def get_deploy_settings() -> DeploySettings:

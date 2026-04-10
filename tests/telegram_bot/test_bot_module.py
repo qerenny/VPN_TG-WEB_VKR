@@ -25,14 +25,16 @@ def test_build_bot_initializes_telebot_with_context_middleware():
             return_value=maintenance_middleware,
         ) as maintenance_middleware_class,
         patch.object(bot_module, "_configure_telegram_api_timeouts") as configure_timeouts,
-        patch.object(bot_module, "_configure_telegram_proxy") as configure_proxy,
+        patch.object(bot_module.asyncio_helper, "proxy", "http://old-proxy"),
+        patch.object(bot_module.apihelper, "proxy", "http://old-proxy"),
         patch.object(bot_module, "_wrap_answer_callback_query") as wrap_answer_callback_query,
         patch.object(bot_module, "logger") as logger,
     ):
         result = bot_module.build_bot()
 
     configure_timeouts.assert_called_once_with()
-    configure_proxy.assert_called_once_with()
+    assert bot_module.asyncio_helper.proxy is None
+    assert bot_module.apihelper.proxy is None
     wrap_answer_callback_query.assert_called_once_with(bot_instance)
     bot_class.assert_called_once_with(bot_module.BOT_API)
     context_middleware_class.assert_called_once_with()
@@ -66,43 +68,6 @@ def test_configure_telegram_api_timeouts_updates_asyncio_helper_defaults():
             == bot_module.TELEGRAM_API_REQUEST_TIMEOUT_SECONDS
         )
 
-
-def test_configure_telegram_proxy_clears_proxy_when_env_is_empty():
-    with (
-        patch.dict(bot_module.os.environ, {}, clear=True),
-        patch.object(bot_module.asyncio_helper, "proxy", "http://old-proxy"),
-        patch.object(bot_module.apihelper, "proxy", "http://old-proxy"),
-    ):
-        bot_module._configure_telegram_proxy()
-
-        assert bot_module.asyncio_helper.proxy is None
-        assert bot_module.apihelper.proxy is None
-
-
-def test_configure_telegram_proxy_uses_http_proxy_from_env():
-    proxy_url = "http://95.85.242.8:8080"
-
-    with (
-        patch.dict(bot_module.os.environ, {"TELEGRAM_PROXY_URL": proxy_url}, clear=True),
-        patch.object(bot_module.asyncio_helper, "proxy", None),
-        patch.object(bot_module.apihelper, "proxy", None),
-        patch.object(bot_module, "logger") as logger,
-    ):
-        bot_module._configure_telegram_proxy()
-
-        assert bot_module.asyncio_helper.proxy == proxy_url
-        assert bot_module.apihelper.proxy == proxy_url
-        logger.info.assert_called_once_with("Telegram API proxy is configured.")
-
-
-def test_configure_telegram_proxy_rejects_vless_links():
-    with patch.dict(
-        bot_module.os.environ,
-        {"TELEGRAM_PROXY_URL": "vless://uuid@example.com:443?security=reality"},
-        clear=True,
-    ):
-        with pytest.raises(ValueError, match="Direct vless:// links are not supported"):
-            bot_module._configure_telegram_proxy()
 
 
 @pytest.mark.asyncio

@@ -25,7 +25,7 @@ class SubscriptionState(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
-    news_bonus_activated_at: datetime | None = Field(
+    info_channel_activated_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )

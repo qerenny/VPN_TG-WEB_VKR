@@ -7,6 +7,7 @@ packages = [{ include = "shared", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+fastapi = "^0.135.3"
 sqlmodel = "^0.0.16"
 pydantic = "^2.6"
 sqlalchemy = "^2.0"
@@ -20,6 +21,7 @@ pytelegrambotapi = "^4.27.0"
 aiohttp = "^3.12.13"
 loguru = "^0.7.2"
 sentry-sdk = "^2.53.0"
+greenlet = "^3.2.4"
 
 [build-system]
 requires = ["poetry-core"]

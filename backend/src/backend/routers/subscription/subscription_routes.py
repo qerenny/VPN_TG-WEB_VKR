@@ -19,7 +19,7 @@ from shared.config.config import (
     API_SERVERS,
     FRONTEND_LINK,
     LOCATION_LABELS,
-    WHITELIST_API_SERVERS,
+    TRAFFIC_LIMITED_API_SERVERS,
     build_subscription_url,
     get_server_inbound_specs,
     REDIS_SUBSCRIPTION_BUILD_TTL,
@@ -32,7 +32,7 @@ from shared.models.vpn.vpn_client_deployment_model import VpnClientDeployment
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.models.vpn.vpn_control_plane_model import VpnControlPlane
 from shared.models.vpn.vpn_location_model import VpnLocation
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.logging_utils import logger
 from backend.utils.async_redis_client import RedisClientError
 from backend.utils.ttl_cache import TTLCache
@@ -51,7 +51,7 @@ SUBSCRIPTION_AUTO_UPDATE_OPEN_ENABLE = "1"
 _PRODUCT_SETTINGS = get_product_settings()
 SUBSCRIPTION_REDIS_PREFIX = _PRODUCT_SETTINGS.redis_prefix
 SUBSCRIPTION_PROFILE_TITLE = _PRODUCT_SETTINGS.profile_title
-WHITELIST_SUBSCRIPTION_PROFILE_TITLE = _PRODUCT_SETTINGS.traffic_profile_title
+TRAFFIC_LIMITED_SUBSCRIPTION_PROFILE_TITLE = _PRODUCT_SETTINGS.traffic_profile_title
 SUBSCRIPTION_ANNOUNCE = _PRODUCT_SETTINGS.announce
 SUBSCRIPTION_SUPPORT_URL = _PRODUCT_SETTINGS.support_link
 
@@ -113,8 +113,8 @@ def _coerce_subscription_build_result(
 
 def _subscription_response_headers(scope: str) -> dict[str, str]:
     headers = dict(SUBSCRIPTION_RESPONSE_HEADERS)
-    if scope == PRODUCT_SCOPE_WHITELIST:
-        headers["profile-title"] = WHITELIST_SUBSCRIPTION_PROFILE_TITLE
+    if scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+        headers["profile-title"] = TRAFFIC_LIMITED_SUBSCRIPTION_PROFILE_TITLE
     return headers
 
 
@@ -360,12 +360,12 @@ async def get_combined_subscription(request: Request, uuid: str = Query(...)):
     )
 
 
-@router.get("/whitelist/build", response_class=PlainTextResponse)
-async def get_whitelist_combined_subscription(request: Request, uuid: str = Query(...)):
+@router.get("/traffic_limited/build", response_class=PlainTextResponse)
+async def get_traffic_limited_combined_subscription(request: Request, uuid: str = Query(...)):
     return await _get_scoped_combined_subscription(
         request,
         uuid=uuid,
-        scope=PRODUCT_SCOPE_WHITELIST,
+        scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
     )
 
 
@@ -442,8 +442,8 @@ def _subscription_info_redis_key(scope: str, cache_key: str) -> str:
 def _server_pool_for_scope(scope: str) -> dict[str, dict]:
     if scope == PRODUCT_SCOPE_STANDARD:
         return API_SERVERS
-    if scope == PRODUCT_SCOPE_WHITELIST:
-        return WHITELIST_API_SERVERS
+    if scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+        return TRAFFIC_LIMITED_API_SERVERS
     return {}
 
 
@@ -550,8 +550,8 @@ async def _resolve_build_targets_from_deployments(
     return list(grouped.values())
 
 
-@router.get("/whitelist/{user_token}", response_model=SubscriptionFormattedInfoSchema)
-async def get_whitelist_subscription_formatted_info(
+@router.get("/traffic_limited/{user_token}", response_model=SubscriptionFormattedInfoSchema)
+async def get_traffic_limited_subscription_formatted_info(
     user_token: str,
     request: Request,
     service: SubscriptionManagerService = Depends(get_subscription_manager_service),
@@ -560,7 +560,7 @@ async def get_whitelist_subscription_formatted_info(
         user_token=user_token,
         request=request,
         service=service,
-        scope=PRODUCT_SCOPE_WHITELIST,
+        scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
     )
 
 

@@ -23,6 +23,11 @@ from backend.services.payments.web_checkout_service import WebCheckoutService
 from backend.services.promo.web_promo_service import WebPromoService
 from backend.services.user.user_manager_service import UserManagerService
 from shared.config.settings import BackendSettings, get_backend_settings
+from shared.infrastructure.access.access_grant_repository import AccessGrantRepository
+from shared.infrastructure.access.access_registry_repository import AccessRegistryRepository
+from shared.infrastructure.access.access_request_repository import AccessRequestRepository
+from shared.services.access.access_request_service import AccessRequestService
+from shared.services.access.access_registry_service import AccessRegistryService
 from shared.infrastructure.payments.payment_repository import (
     PaymentRepository,
 )
@@ -37,6 +42,11 @@ from shared.infrastructure.users.telegram_user_repository import TelegramUserRep
 from shared.utils.jwt_encoder import JWTEncoder
 from shared.utils.timestamp_utils import TimestampUtils
 from telegram_bot.infrastructure.api.client_manager import ClientManager
+from telegram_bot.services.access.access_issuance_service import AccessIssuanceService
+from telegram_bot.services.access.access_request_notification_service import (
+    AccessRequestNotificationService,
+)
+from telegram_bot.services.linking.telegram_link_service import TelegramLinkService
 from telegram_bot.services.payments.demo_payment_gateway import build_demo_payment_gateways
 from telegram_bot.services.subscriptions.standard_user_subscription_service import (
     StandardUserSubscriptionService,
@@ -63,6 +73,8 @@ class BackendDeps:
     subscription_manager_service: SubscriptionManagerService
     web_promo_service: WebPromoService
     admin_service: AdminService
+    access_registry_service: AccessRegistryService
+    access_request_service: AccessRequestService
 
 
 def build_backend_deps(settings: BackendSettings | None = None) -> BackendDeps:
@@ -70,6 +82,9 @@ def build_backend_deps(settings: BackendSettings | None = None) -> BackendDeps:
 
     user_repository = TelegramUserRepository()
     payment_repository = PaymentRepository()
+    access_grant_repository = AccessGrantRepository()
+    access_registry_repository = AccessRegistryRepository()
+    access_request_repository = AccessRequestRepository()
     referral_repository = ReferralRepository()
     promo_code_repository = PromoCodeRepository()
     password_hasher = PasswordHasher()
@@ -110,7 +125,10 @@ def build_backend_deps(settings: BackendSettings | None = None) -> BackendDeps:
         expire_minutes=runtime_settings.jwt.expire_minutes,
     )
     timestamp_utils = TimestampUtils()
-    account_service = AccountService(timestamp=timestamp_utils)
+    account_service = AccountService(
+        timestamp=timestamp_utils,
+        access_registry_repository=access_registry_repository,
+    )
     linking_service = LinkingService(
         identity_link_service=identity_link_service,
     )
@@ -150,6 +168,29 @@ def build_backend_deps(settings: BackendSettings | None = None) -> BackendDeps:
         jwt_encoder=jwt_encoder,
         timestamp=timestamp_utils,
     )
+    access_issuance_service = AccessIssuanceService(
+        access_grant_repository=access_grant_repository,
+        subscription_flow_service=admin_service.subscription_flow_service,
+        traffic_limited_service=admin_service.traffic_limited_service,
+        standard_user_subscription_service=standard_user_subscription_service,
+    )
+    admin_service.access_issuance_service = access_issuance_service
+    access_request_service = AccessRequestService(
+        access_request_repository=access_request_repository,
+        access_grant_repository=access_grant_repository,
+        access_issuance_service=access_issuance_service,
+        access_registry_service=AccessRegistryService(
+            access_registry_repository=access_registry_repository,
+            access_grant_repository=access_grant_repository,
+        ),
+        notification_service=AccessRequestNotificationService(
+            telegram_link_service=TelegramLinkService(
+                identity_link_service=identity_link_service,
+                secret=runtime_settings.jwt.secret,
+            ),
+        ),
+    )
+    access_registry_service = access_request_service.access_registry_service
 
     return BackendDeps(
         settings=runtime_settings,
@@ -168,6 +209,8 @@ def build_backend_deps(settings: BackendSettings | None = None) -> BackendDeps:
         subscription_manager_service=subscription_manager_service,
         web_promo_service=web_promo_service,
         admin_service=admin_service,
+        access_registry_service=access_registry_service,
+        access_request_service=access_request_service,
     )
 
 
@@ -216,3 +259,11 @@ def get_web_checkout_service(request: Request) -> WebCheckoutService:
 
 def get_web_promo_service(request: Request) -> WebPromoService:
     return get_backend_deps(request).web_promo_service
+
+
+def get_access_request_service(request: Request) -> AccessRequestService:
+    return get_backend_deps(request).access_request_service
+
+
+def get_access_registry_service(request: Request) -> AccessRegistryService:
+    return get_backend_deps(request).access_registry_service

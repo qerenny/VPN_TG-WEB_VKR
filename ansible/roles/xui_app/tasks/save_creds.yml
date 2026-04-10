@@ -27,7 +27,7 @@
       SSH Port:          {{ server_baseline_ssh_port | default(ansible_port | default(22)) }}
       Browser URL:       https://{{ domain_name }}:{{ xui_app_web_port }}{{ xui_app_web_base_path }}
       Hosts Entry:       127.0.0.1 {{ domain_name }}
-      Tunnel Command:    autossh -M 0 -N -L {{ xui_app_web_port }}:127.0.0.1:{{ xui_app_web_port }} -i {{ xui_app_ssh_identity_file }} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -p {{ server_baseline_ssh_port | default(ansible_port | default(22)) }} {{ ansible_user | default('Rune-Smith') }}@{{ ansible_host }}
+      Tunnel Command:    autossh -M 0 -N -L {{ xui_app_web_port }}:127.0.0.1:{{ xui_app_web_port }} -i {{ xui_app_ssh_identity_file }} -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -p {{ server_baseline_ssh_port | default(ansible_port | default(22)) }} {{ ansible_user | default('remote-access-user') }}@{{ ansible_host }}
       SSH Config File:   {{ xui_app_local_secrets_dir }}/{{ inventory_hostname }}_xui_ssh_config
       Note:              Open the Browser URL above after adding the Hosts Entry locally and starting the tunnel.
       {% endif %}
@@ -57,7 +57,7 @@
     content: |
       Host {{ inventory_hostname }}-xui
           HostName {{ ansible_host }}
-          User {{ ansible_user | default('Rune-Smith') }}
+          User {{ ansible_user | default('remote-access-user') }}
           Port {{ server_baseline_ssh_port | default(ansible_port | default(22)) }}
           IdentityFile {{ xui_app_ssh_identity_file }}
           IdentitiesOnly yes

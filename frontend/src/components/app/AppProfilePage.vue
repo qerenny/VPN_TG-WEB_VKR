@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useToast } from 'vue-toastification'
 
 import {
@@ -12,22 +12,37 @@ import {
   type WebLinks,
   type WebProfile,
 } from '../../api/account'
+import {
+  DEFAULT_FEATURE_FLAGS,
+  createEmptyPublicConfig,
+  fetchPublicConfig,
+  type FrontendFeatureFlags,
+} from '../../api/publicConfig'
 import { formatDateTime } from '../../utils/format'
 
 const toast = useToast()
 
 const profile = ref<WebProfile | null>(null)
 const links = ref<WebLinks | null>(null)
+const features = ref<FrontendFeatureFlags>({ ...DEFAULT_FEATURE_FLAGS })
 const loading = ref(true)
 const saving = ref(false)
 const pendingTelegramLink = ref<TelegramLinkStartResult | null>(null)
+const mailEnabled = computed(() => features.value.mail_enabled)
+const linkingTitle = computed(() => 'Telegram и web-account')
+const profileIntro = computed(() => 'Личные настройки, email и интеграции с внешними сервисами.')
 
 onMounted(async () => {
   loading.value = true
   try {
-    const [profileData, linksData] = await Promise.all([fetchProfile(), fetchLinks()])
+    const [profileData, linksData, publicConfig] = await Promise.all([
+      fetchProfile(),
+      fetchLinks(),
+      fetchPublicConfig().catch(() => createEmptyPublicConfig()),
+    ])
     profile.value = profileData
     links.value = linksData
+    features.value = publicConfig.features
   } catch {
     toast.error('Не удалось загрузить профиль')
   } finally {
@@ -44,8 +59,12 @@ async function saveProfile() {
   try {
     const payload = {
       display_name: profile.value.display_name,
-      marketing_opt_in: profile.value.marketing_opt_in,
-      preferred_contact_email: profile.value.auth_email ? null : profile.value.preferred_contact_email,
+      marketing_opt_in: mailEnabled.value ? profile.value.marketing_opt_in : false,
+      preferred_contact_email: (
+        !profile.value.auth_email
+          ? profile.value.preferred_contact_email
+          : null
+      ),
     }
     profile.value = await updateProfile({
       ...payload,
@@ -85,7 +104,7 @@ async function beginTelegramLink() {
     <div class="cabinet-section__head">
       <p class="cabinet-kicker">Профиль</p>
       <h2 class="cabinet-title">Данные аккаунта и привязки</h2>
-      <p class="cabinet-copy">Личные настройки, email и интеграции с внешними сервисами.</p>
+      <p class="cabinet-copy">{{ profileIntro }}</p>
     </div>
 
     <div class="cabinet-grid cabinet-grid--2">
@@ -158,19 +177,19 @@ async function beginTelegramLink() {
           <span class="material-symbols-outlined profile-card__head-icon profile-card__head-icon--blue">link</span>
           <div class="cabinet-section__head">
             <p class="cabinet-kicker">Привязки</p>
-            <h3 class="cabinet-subtitle">Telegram и web-account</h3>
+            <h3 class="cabinet-subtitle">{{ linkingTitle }}</h3>
           </div>
         </div>
 
         <div class="cabinet-facts">
           <div class="cabinet-fact">
             <p class="cabinet-fact__label">Web email</p>
-            <p class="cabinet-fact__value">{{ profile?.auth_email || 'Пока не создан' }}</p>
+            <p class="cabinet-fact__value">{{ profile?.auth_email || profile?.preferred_contact_email || 'Нужно привязать' }}</p>
           </div>
           <div class="cabinet-fact">
             <p class="cabinet-fact__label">Почта</p>
             <p class="cabinet-fact__value">
-              {{ profile?.auth_email ? (profile.email_verified ? 'Подтверждена' : 'Не подтверждена') : 'Еще не настроена' }}
+              {{ profile?.auth_email ? (profile.email_verified ? 'Подтверждена' : 'Не подтверждена') : (profile?.preferred_contact_email ? 'Добавлена, но не привязана' : 'Нужно привязать') }}
             </p>
           </div>
           <div class="cabinet-fact">
@@ -234,7 +253,7 @@ async function beginTelegramLink() {
 }
 
 .profile-card__head-icon--blue {
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   background: rgba(77, 143, 214, 0.1);
 }
 
@@ -252,7 +271,7 @@ async function beginTelegramLink() {
 
 .profile-notice__icon {
   font-size: 20px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   flex-shrink: 0;
 }
 
@@ -318,7 +337,7 @@ async function beginTelegramLink() {
 
 .telegram-link-card__icon {
   font-size: 22px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   flex-shrink: 0;
 }
 

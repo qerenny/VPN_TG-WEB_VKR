@@ -4,6 +4,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.env
+.env.override
+.env.*.override
+.env.override.*
 # C extensions
 *.so
 
@@ -270,7 +273,7 @@ dist-ssr
 project.code-workspace
 dep.env
 frontend/.env.production
-!tests/integration/env.ci.yaml
+!tests/integration/.env.ci
 TMSP_Lab3_Testing_Report.md
 docs/
 
@@ -280,8 +283,7 @@ docs/
 # Private deployment and infrastructure secrets
 .env.*
 !.env.example
-local_env.yaml
-production_env.yaml
+!.env.override.example
 frontend/prod.env
 ansible/.vault_pass
 ansible/playbooks/secrets/

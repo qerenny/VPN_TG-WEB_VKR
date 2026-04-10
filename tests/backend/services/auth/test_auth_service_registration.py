@@ -204,6 +204,45 @@ async def test_login_via_telegram_permanent_link_token(session_factory, auth_ser
 
 
 @pytest.mark.asyncio
+async def test_login_via_telegram_link_rejects_blocked_user(session_factory, auth_service):
+    service, _, _ = auth_service
+    now = auth_service_module.datetime.now(auth_service_module.timezone.utc)
+
+    async with session_factory() as session:
+        user = AppUser(created_at=now, updated_at=now, blocked_at=now, deleted_at=None)
+        session.add(user)
+        await session.flush()
+        session.add(
+            TelegramAccount(
+                user_id=int(user.id),
+                telegram_id=6884511529,
+                username="remote_access_support",
+                linked_at=now,
+                first_seen_at=now,
+                last_seen_at=now,
+                revoked_at=None,
+            )
+        )
+        await session.commit()
+        raw_token = issue_telegram_web_login_token(
+            tg_id=6884511529,
+            user_id=int(user.id),
+            secret="secret-key",
+        )
+
+    with pytest.raises(auth_service_module.HTTPException) as exc_info:
+        await service.login_via_telegram_link(
+            raw_token=raw_token,
+            ip_address="127.0.0.1",
+            user_agent="pytest-agent",
+            device_name="telegram-link",
+        )
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "User is blocked"
+
+
+@pytest.mark.asyncio
 async def test_reset_password_updates_hash_and_revokes_existing_sessions(session_factory, auth_service):
     service, challenge_service, _ = auth_service
     hasher = PasswordHasher()

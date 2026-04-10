@@ -18,6 +18,8 @@ from telegram_bot.shared.utils.menu_rendering import render_photo_menu
 
 
 class StartHandler:
+    BLOCKED_TEXT = "🚫 Аккаунт заблокирован. Доступ временно закрыт."
+
     def __init__(
         self,
         referral_start: ReferralStartHandler,
@@ -47,11 +49,14 @@ class StartHandler:
                 raw_token=str(start_arg.removeprefix("link_")),
             )
             await bot.send_message(chat_id=tg_id, text=result.message)
-            if result.status == "linked":
-                await self.send_main_menu(message)
+            if result.status == "linked" and not await self.repo.is_blocked(int(tg_id)):
+                await self.send_main_menu(message, force_new=True)
             return
 
         user_created = await self.user_register.register_user(message)
+        if await self.repo.is_blocked(int(tg_id)):
+            await bot.send_message(chat_id=tg_id, text=self.BLOCKED_TEXT)
+            return
         if self.referrals_enabled:
             await self.referral_start.process_start_command(
                 message,
@@ -60,8 +65,8 @@ class StartHandler:
             )
             logger.info(f"Referral code processing complete for chat_id={tg_id}")
 
-        await self.send_main_menu(message)
-    async def send_main_menu(self, target: Message | CallbackQuery) -> None:
+        await self.send_main_menu(message, force_new=True)
+    async def send_main_menu(self, target: Message | CallbackQuery, *, force_new: bool = False) -> None:
         message = target.message if isinstance(target, CallbackQuery) else target
         tg_id = message.chat.id
         text = messages.get_random_message("start_welcome_message")
@@ -75,5 +80,6 @@ class StartHandler:
             photo=PHOTO_menu,
             caption=text,
             reply_markup=markup,
+            force_new=force_new,
             bot_client=bot,
         )

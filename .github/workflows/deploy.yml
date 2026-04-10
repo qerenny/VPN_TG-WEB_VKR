@@ -30,14 +30,15 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: 📄 Create production_env.yaml for Frontend Build
+      - name: 📄 Create .env.production for Build
         env:
-          PRODUCTION_ENV_YAML: ${{ secrets.PRODUCTION_ENV_YAML }}
+          PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
-          Path("production_env.yaml").write_text(os.environ["PRODUCTION_ENV_YAML"], encoding="utf-8")
+          payload = os.environ.get("PRODUCTION_ENV_FILE", "")
+          Path(".env.production").write_text(payload, encoding="utf-8")
           PY
 
       - name: 📄 Create frontend/.env.production for Frontend Build
@@ -139,17 +140,17 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           sparse-checkout: |
             docker-compose.prod.yml
-            docker/xray
 
       - name: 📄 Prepare Deploy Config Files
         env:
-          PRODUCTION_ENV_YAML: ${{ secrets.PRODUCTION_ENV_YAML }}
+          PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
           FRONTEND_ENV: ${{ secrets.FRONTEND_ENV }}
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
-          Path("production_env.yaml").write_text(os.environ["PRODUCTION_ENV_YAML"], encoding="utf-8")
+          payload = os.environ.get("PRODUCTION_ENV_FILE", "")
+          Path(".env.production").write_text(payload, encoding="utf-8")
           Path("frontend.env.production").write_text(os.environ["FRONTEND_ENV"], encoding="utf-8")
           PY
 
@@ -187,7 +188,6 @@ jobs:
       - name: 🧾 Create deploy .env
         env:
           DEPLOY_DOTENV: ${{ secrets.DEPLOY_DOTENV }}
-          TELEGRAM_VLESS_URL: ${{ secrets.TELEGRAM_VLESS_URL }}
         run: |
           python3 - <<'PY'
           import os
@@ -195,7 +195,6 @@ jobs:
 
           image_prefix = os.environ["IMAGE_PREFIX"].strip()
           raw_deploy_dotenv = os.environ.get("DEPLOY_DOTENV", "")
-          telegram_vless_url = os.environ.get("TELEGRAM_VLESS_URL", "").strip()
 
           lines: list[str] = [f"IMAGE_PREFIX={image_prefix}"]
           seen_keys = {"IMAGE_PREFIX"}
@@ -211,9 +210,6 @@ jobs:
 
             lines.append(line)
             seen_keys.add(key)
-
-          if telegram_vless_url and "TELEGRAM_VLESS_URL" not in seen_keys:
-            lines.append(f"TELEGRAM_VLESS_URL={telegram_vless_url}")
 
           Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
           print("Created deploy .env with keys:", ", ".join(line.split("=", 1)[0] for line in lines))
@@ -235,7 +231,7 @@ jobs:
 
               cp -v docker-compose.yml "$BACKUP_DIR/docker-compose.yml" >/dev/null 2>&1 || true
               cp -v .env "$BACKUP_DIR/.env" >/dev/null 2>&1 || true
-              cp -v production_env.yaml "$BACKUP_DIR/production_env.yaml" >/dev/null 2>&1 || true
+              cp -v .env.production "$BACKUP_DIR/.env.production" >/dev/null 2>&1 || true
               cp -v frontend/.env.production "$BACKUP_DIR/frontend.env.production" >/dev/null 2>&1 || true
 
               docker compose ps -a > "$BACKUP_DIR/compose-ps.txt" 2>/dev/null || true
@@ -260,15 +256,14 @@ jobs:
 
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
             set -e
-            mkdir -p "$HOME/remote-access-service/docker/xray" "$HOME/remote-access-service/.deploy-staging"
+            mkdir -p "$HOME/remote-access-service/.deploy-staging"
             cd "$HOME/remote-access-service"
           EOF
 
           # Copy compose + generated config files into staging first
           rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" docker-compose.prod.yml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/docker-compose.yml
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" docker/xray/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/docker/xray/
           rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" .env ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/.env
-          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" production_env.yaml ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/production_env.yaml
+          rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" .env.production ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/.env.production
           rsync -az -e "ssh -p ${{ secrets.SSH_PORT }}" frontend.env.production ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/remote-access-service/.deploy-staging/frontend.env.production
 
           # Connect and Deploy
@@ -301,7 +296,7 @@ jobs:
 
             install_staged_file ".deploy-staging/docker-compose.yml" "docker-compose.yml"
             install_staged_file ".deploy-staging/.env" ".env"
-            install_staged_file ".deploy-staging/production_env.yaml" "production_env.yaml"
+            install_staged_file ".deploy-staging/.env.production" ".env.production"
             install_staged_file ".deploy-staging/frontend.env.production" "frontend.env.production"
 
             wait_for_container_health() {
@@ -334,13 +329,17 @@ jobs:
             }
             trap diagnostics ERR
 
-            # Validate YAML early to avoid restart loops in backend/bot
-            test -f production_env.yaml
-            if [ -d production_env.yaml ]; then
-              echo "production_env.yaml is a directory, expected a file."
+            # Validate env file early to avoid restart loops in backend/bot
+            test -f .env.production
+            if [ -d .env.production ]; then
+              echo ".env.production is a directory, expected a file."
               exit 1
             fi
-            python3 -c "import pathlib, yaml; p = pathlib.Path('production_env.yaml'); c = yaml.safe_load(p.read_text(encoding='utf-8')) or {}; db = c.get('db') or {}; missing = [k for k in ('name', 'username', 'password', 'host') if not db.get(k)]; assert not missing, f\"Invalid production_env.yaml db section, missing: {', '.join(missing)}\"; assert db.get('host') not in ('localhost', '127.0.0.1'), \"Invalid production_env.yaml: db.host must be 'postgres' for docker-compose\"; print(f\"production_env.yaml is valid; db host={db.get('host')} user={db.get('username')} db={db.get('name')}\")"
+            grep -Eq '^DB__NAME=' .env.production
+            grep -Eq '^DB__USERNAME=' .env.production
+            grep -Eq '^DB__PASSWORD=' .env.production
+            grep -Eq '^DB__HOST=\"?postgres\"?$' .env.production
+            echo ".env.production contains DB settings for docker-compose"
 
             mkdir -p frontend
             mv -f frontend.env.production frontend/.env.production
@@ -384,7 +383,6 @@ jobs:
 
             echo "[deploy] Start infra"
             # Recreate infra first to avoid stale containers/images
-            docker compose stop xray >/dev/null 2>&1 || true
             docker compose up -d --force-recreate --remove-orphans postgres redis
 
             # Ensure infra is healthy before continuing

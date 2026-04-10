@@ -14,13 +14,11 @@ def handler():
     start_handler = AsyncMock()
     promo_repo = AsyncMock()
     promo_code_repo = AsyncMock()
-    sync_service = AsyncMock()
     return SubscriptionPromoHandler(
         subscription_flow_service=subscription_flow_service,
         start_handler=start_handler,
         promo_repo=promo_repo,
         promo_code_repo=promo_code_repo,
-        sync_service=sync_service,
     )
 
 

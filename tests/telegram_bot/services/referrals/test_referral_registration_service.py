@@ -16,7 +16,6 @@ def service_and_mocks():
     promo_usage_repo = AsyncMock()
     validator = AsyncMock()
     bonuses = AsyncMock()
-    sync_service = AsyncMock()
     service = ReferralRegistrationService(
         repo=repo,
         user_repo=user_repo,
@@ -24,14 +23,13 @@ def service_and_mocks():
         promo_usage_repo=promo_usage_repo,
         validator=validator,
         bonuses=bonuses,
-        sync_service=sync_service,
     )
-    return service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service
+    return service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses
 
 
 @pytest.mark.asyncio
 async def test_register_user_creates_referral_and_grants_bonus_for_new_valid_code(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = None
     validator.is_valid_referral.return_value = True
     validator.is_code_new.return_value = (True, "code_activated")
@@ -55,14 +53,14 @@ async def test_register_user_creates_referral_and_grants_bonus_for_new_valid_cod
 
 @pytest.mark.asyncio
 async def test_register_user_updates_existing_code_without_bonus_when_not_new(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = object()
     validator.is_valid_referral.return_value = True
     validator.is_code_new.return_value = (False, "code_updated")
     user_repo.get.return_value = SimpleNamespace(
         expiration_date=None,
         trial_date=None,
-        news_channel_date=None,
+        info_channel_date=None,
     )
     payment_repo.has_any_for_user.return_value = False
     promo_usage_repo.has_any_for_user.return_value = False
@@ -81,7 +79,7 @@ async def test_register_user_updates_existing_code_without_bonus_when_not_new(se
 
 @pytest.mark.asyncio
 async def test_register_user_returns_invalid_code_for_bad_referral(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = None
     validator.is_valid_referral.return_value = False
 
@@ -98,7 +96,7 @@ async def test_register_user_returns_invalid_code_for_bad_referral(service_and_m
 
 @pytest.mark.asyncio
 async def test_register_user_without_code_only_ensures_referral_exists(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = None
 
     result = await service.register_user(
@@ -116,12 +114,12 @@ async def test_register_user_without_code_only_ensures_referral_exists(service_a
 
 @pytest.mark.asyncio
 async def test_register_user_allows_late_referral_for_existing_unused_user(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = SimpleNamespace(referrer_tg_id=None)
     user_repo.get.return_value = SimpleNamespace(
         expiration_date=None,
         trial_date=None,
-        news_channel_date=None,
+        info_channel_date=None,
     )
     payment_repo.has_any_for_user.return_value = False
     promo_usage_repo.has_any_for_user.return_value = False
@@ -141,12 +139,12 @@ async def test_register_user_allows_late_referral_for_existing_unused_user(servi
 
 @pytest.mark.asyncio
 async def test_register_user_rejects_late_referral_after_trial(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = SimpleNamespace(referrer_tg_id=None)
     user_repo.get.return_value = SimpleNamespace(
         expiration_date=None,
         trial_date=123,
-        news_channel_date=None,
+        info_channel_date=None,
     )
 
     result = await service.register_user(
@@ -163,12 +161,12 @@ async def test_register_user_rejects_late_referral_after_trial(service_and_mocks
 
 @pytest.mark.asyncio
 async def test_register_user_rejects_late_referral_after_payment(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = SimpleNamespace(referrer_tg_id=None)
     user_repo.get.return_value = SimpleNamespace(
         expiration_date=None,
         trial_date=None,
-        news_channel_date=None,
+        info_channel_date=None,
     )
     payment_repo.has_any_for_user.return_value = True
     promo_usage_repo.has_any_for_user.return_value = False
@@ -187,12 +185,12 @@ async def test_register_user_rejects_late_referral_after_payment(service_and_moc
 
 @pytest.mark.asyncio
 async def test_register_user_rejects_late_referral_after_promo(service_and_mocks):
-    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses, sync_service = service_and_mocks
+    service, repo, user_repo, payment_repo, promo_usage_repo, validator, bonuses = service_and_mocks
     repo.get.return_value = SimpleNamespace(referrer_tg_id=None)
     user_repo.get.return_value = SimpleNamespace(
         expiration_date=None,
         trial_date=None,
-        news_channel_date=None,
+        info_channel_date=None,
     )
     payment_repo.has_any_for_user.return_value = False
     promo_usage_repo.has_any_for_user.return_value = True

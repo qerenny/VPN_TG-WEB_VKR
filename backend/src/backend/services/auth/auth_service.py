@@ -99,6 +99,9 @@ class AuthService:
                     detail="Email is not verified",
                 )
 
+            app_user = await session.get(AppUser, int(web_account.user_id))
+            self._ensure_user_not_blocked(app_user)
+
             web_account.last_login_at = datetime.now(timezone.utc)
             session.add(web_account)
             await session.commit()
@@ -301,6 +304,7 @@ class AuthService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Link target not found",
                 )
+            self._ensure_user_not_blocked(app_user)
 
             web_account = (
                 await session.execute(
@@ -419,6 +423,7 @@ class AuthService:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Authentication required",
                 )
+            self._ensure_user_not_blocked(app_user)
 
             web_account_result = await session.execute(
                 select(WebAccount).where(
@@ -450,6 +455,14 @@ class AuthService:
             created_at=app_user.created_at,
             last_login_at=getattr(web_account, "last_login_at", None),
         )
+
+    @staticmethod
+    def _ensure_user_not_blocked(app_user: AppUser | None) -> None:
+        if app_user is not None and getattr(app_user, "blocked_at", None) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is blocked",
+            )
 
     async def _find_claimed_user_id(self, session, normalized_email: str) -> int | None:
         profiles = (

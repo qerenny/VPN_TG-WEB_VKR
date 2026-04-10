@@ -31,3 +31,35 @@ class AdminPromoCreateRequest(BaseModel):
 
 class AdminPromoToggleRequest(BaseModel):
     is_active: bool
+
+
+class AdminAccessRequestReviewRequest(BaseModel):
+    decision: str = Field(min_length=1)
+    review_note: str | None = Field(default=None, max_length=1000)
+    template_code: str | None = Field(default=None, min_length=1)
+
+
+class AdminAccessRegistryUpsertRequest(BaseModel):
+    identity_type: str = Field(min_length=1)
+    identity_value: str = Field(min_length=1)
+    auto_approve: bool = True
+    allow_auto_renew: bool = False
+    is_active: bool = True
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AdminAccessRegistryUpdateRequest(BaseModel):
+    identity_type: str = Field(min_length=1)
+    identity_value: str = Field(min_length=1)
+    auto_approve: bool = True
+    allow_auto_renew: bool = False
+    is_active: bool = True
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AdminAccessRegistryBatchUpsertRequest(BaseModel):
+    identities_text: str = Field(min_length=1)
+    auto_approve: bool = True
+    allow_auto_renew: bool = False
+    is_active: bool = True
+    note: str | None = Field(default=None, max_length=1000)

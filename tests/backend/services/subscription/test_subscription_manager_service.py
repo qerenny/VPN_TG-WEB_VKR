@@ -6,7 +6,7 @@ import pytest
 
 from backend.services.subscription.subscription_manager_service import (
     SubscriptionManagerService,
-    WhiteListSubscriptionSnapshot,
+    TrafficLimitedSubscriptionSnapshot,
 )
 
 
@@ -80,7 +80,7 @@ async def test_get_subscription_formatted_info_preserves_not_found_semantics():
 
 
 @pytest.mark.asyncio
-async def test_get_subscription_formatted_info_builds_whitelist_link():
+async def test_get_subscription_formatted_info_builds_traffic_limited_link():
     repo = AsyncMock()
     jwt_encoder = MagicMock()
     timestamp = MagicMock()
@@ -88,7 +88,7 @@ async def test_get_subscription_formatted_info_builds_whitelist_link():
     jwt_encoder.decode.return_value = {
         "tg_id": 42,
         "email": "wl@example.com",
-        "scope": "whitelist",
+        "scope": "traffic_limited",
     }
     timestamp.current_timestamp.return_value = 1_700_000_000_000
     timestamp.calculate_time_difference.return_value = "29 дней"
@@ -105,9 +105,9 @@ async def test_get_subscription_formatted_info_builds_whitelist_link():
     with (
         patch.object(
             service,
-            "_get_whitelist_snapshot",
+            "_get_traffic_limited_snapshot",
             new=AsyncMock(
-                return_value=WhiteListSubscriptionSnapshot(
+                return_value=TrafficLimitedSubscriptionSnapshot(
                     external_email="wl@example.com",
                     subscription_external_id="wl-sub-42",
                     expires_at_ms=1_800_000_000_000,
@@ -119,21 +119,21 @@ async def test_get_subscription_formatted_info_builds_whitelist_link():
             ),
         ),
         patch(
-            "backend.services.subscription.subscription_manager_service.BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK",
-            "https://example.com/subscription/whitelist/build",
+            "backend.services.subscription.subscription_manager_service.BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK",
+            "https://example.com/subscription/traffic-limited/build",
         ),
     ):
         result = await service.get_subscription_formatted_info(
             "jwt-token",
-            scope="whitelist",
+            scope="traffic_limited",
         )
 
     assert (
         result["sub_link"]
-        == "https://example.com/subscription/whitelist/build?uuid=wl-sub-42"
+        == "https://example.com/subscription/traffic-limited/build?uuid=wl-sub-42"
     )
     assert result["sub_is_active"] is True
-    assert result["scope"] == "whitelist"
+    assert result["scope"] == "traffic_limited"
     assert result["traffic_allocated_bytes"] == 15 * 1024 * 1024 * 1024
     assert result["traffic_used_bytes"] == 3 * 1024 * 1024 * 1024
     assert result["traffic_remaining_bytes"] == 15 * 1024 * 1024
@@ -151,7 +151,7 @@ async def test_get_subscription_formatted_info_rejects_scope_mismatch():
     jwt_encoder.decode.return_value = {
         "tg_id": 42,
         "email": "user@example.com",
-        "scope": "whitelist",
+        "scope": "traffic_limited",
     }
 
     service = SubscriptionManagerService(

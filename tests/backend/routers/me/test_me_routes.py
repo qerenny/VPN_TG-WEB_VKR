@@ -10,12 +10,16 @@ from backend.routers.me import me_routes
 
 def _features(**overrides):
     values = {
+        "access_requests_enabled": False,
+        "access_registry_enabled": False,
+        "access_admin_override_enabled": False,
         "commerce_enabled": True,
         "referrals_enabled": True,
         "promos_enabled": True,
         "web_purchase_enabled": True,
         "telegram_bot_enabled": True,
-        "telegram_proxy_enabled": False,
+        "standard_config_enabled": True,
+        "traffic_limited_config_enabled": True,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -136,7 +140,11 @@ async def test_get_web_subscriptions_returns_payload():
     principal = SimpleNamespace(user_id=7)
     account_service = SimpleNamespace(
         get_subscriptions=AsyncMock(
-            return_value={"standard": {"is_active": True}, "whitelist": {"is_active": False}}
+            return_value={
+                "standard": {"is_active": True},
+                "traffic_limited": {"is_active": False},
+                "access_policy": {"registry_managed": True, "registry_template_code": "month_1"},
+            }
         )
     )
 
@@ -146,11 +154,109 @@ async def test_get_web_subscriptions_returns_payload():
     )
 
     assert result.standard["is_active"] is True
-    assert result.whitelist["is_active"] is False
+    assert result.traffic_limited["is_active"] is False
+    assert result.access_policy["registry_managed"] is True
 
 
 @pytest.mark.asyncio
-async def test_get_web_payments_returns_items():
+async def test_get_web_access_requests_returns_items(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(access_requests_enabled=True),
+    )
+    access_request_service = SimpleNamespace(
+        list_user_requests=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    id=1,
+                    user_id=7,
+                    requested_template_code="month_1",
+                    access_grant_id=None,
+                    channel="web",
+                    status="pending",
+                    comment="need access",
+                    review_note=None,
+                    reviewed_by_actor=None,
+                    requested_at="2026-04-09T20:00:00+00:00",
+                    reviewed_at=None,
+                    metadata={},
+                )
+            ]
+        )
+    )
+
+    result = await me_routes.get_web_access_requests(
+        principal=SimpleNamespace(user_id=7),
+        access_request_service=access_request_service,
+    )
+
+    assert result.items[0].requested_template_code == "month_1"
+
+
+@pytest.mark.asyncio
+async def test_get_web_access_grants_returns_items():
+    principal = SimpleNamespace(user_id=7)
+    account_service = SimpleNamespace(
+        get_access_grants=AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "template_code": "month_1",
+                    "template_label": "1 месяц · Базовая конфигурация",
+                    "scope": "standard",
+                    "entitlement_kind": "time",
+                    "source_type": "request_approval",
+                    "source_ref": "access_request:1",
+                    "status": "active",
+                    "expires_at": None,
+                    "quota_bytes": None,
+                    "granted_by_user_id": None,
+                    "created_at": "2026-04-09T20:00:00+00:00",
+                    "activated_at": "2026-04-09T20:00:01+00:00",
+                    "metadata": {"approved_template_code": "month_1"},
+                }
+            ]
+        )
+    )
+
+    result = await me_routes.get_web_access_grants(
+        principal=principal,
+        account_service=account_service,
+    )
+
+    assert result.items[0].template_code == "month_1"
+    assert result.items[0].source_type == "request_approval"
+    assert result.items[0].template_label == "1 месяц · Базовая конфигурация"
+
+
+@pytest.mark.asyncio
+async def test_create_web_access_request_rejects_disabled_module(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(access_requests_enabled=False),
+    )
+    access_request_service = SimpleNamespace(create_request=AsyncMock())
+
+    with pytest.raises(me_routes.HTTPException) as exc_info:
+        await me_routes.create_web_access_request(
+            payload=me_routes.WebAccessRequestCreateRequest(template_code="month_1", comment="need access"),
+            principal=SimpleNamespace(user_id=7),
+            access_request_service=access_request_service,
+        )
+
+    assert exc_info.value.status_code == 404
+    access_request_service.create_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_web_payments_returns_items(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(commerce_enabled=True),
+    )
     principal = SimpleNamespace(user_id=7)
     account_service = SimpleNamespace(
         get_payments=AsyncMock(
@@ -170,7 +276,7 @@ async def test_get_web_payments_returns_items():
 async def test_get_web_payments_rejects_disabled_commerce(monkeypatch):
     monkeypatch.setattr(
         me_routes,
-        "get_product_feature_settings",
+        "get_effective_product_feature_settings",
         lambda: _features(commerce_enabled=False),
     )
     account_service = SimpleNamespace(get_payments=AsyncMock())
@@ -210,7 +316,7 @@ async def test_get_web_plan_catalog_returns_payload():
         get_plan_catalog=AsyncMock(
             return_value={
                 "standard": [{"code": "month_1"}],
-                "whitelist": [{"code": "whitelist_15gb"}],
+                "traffic_limited": [{"code": "traffic_limited_15gb"}],
             }
         )
     )
@@ -221,14 +327,14 @@ async def test_get_web_plan_catalog_returns_payload():
     )
 
     assert result.standard == [{"code": "month_1"}]
-    assert result.whitelist == [{"code": "whitelist_15gb"}]
+    assert result.traffic_limited == [{"code": "traffic_limited_15gb"}]
 
 
 @pytest.mark.asyncio
 async def test_get_web_referral_stats_rejects_disabled_referrals(monkeypatch):
     monkeypatch.setattr(
         me_routes,
-        "get_product_feature_settings",
+        "get_effective_product_feature_settings",
         lambda: _features(referrals_enabled=False),
     )
     account_service = SimpleNamespace(get_referral_stats=AsyncMock())
@@ -244,7 +350,12 @@ async def test_get_web_referral_stats_rejects_disabled_referrals(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_create_web_checkout_uses_checkout_service():
+async def test_create_web_checkout_uses_checkout_service(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(commerce_enabled=True, web_purchase_enabled=True),
+    )
     principal = SimpleNamespace(user_id=7)
     checkout_service = SimpleNamespace(
         create_checkout=AsyncMock(
@@ -252,7 +363,7 @@ async def test_create_web_checkout_uses_checkout_service():
                 payment_id="pay_1",
                 status="pending",
                 checkout_url="https://pay.example.com/1",
-                provider="yookassa",
+                provider="external_card",
                 plan_code="month_1",
                 plan_name="1 month access",
                 scope="standard",
@@ -263,7 +374,7 @@ async def test_create_web_checkout_uses_checkout_service():
     )
 
     result = await me_routes.create_web_checkout(
-        payload=me_routes.WebCheckoutRequest(plan_code="month_1", method="yookassa"),
+        payload=me_routes.WebCheckoutRequest(plan_code="month_1", method="external_card"),
         principal=principal,
         checkout_service=checkout_service,
     )
@@ -273,7 +384,7 @@ async def test_create_web_checkout_uses_checkout_service():
     checkout_service.create_checkout.assert_awaited_once_with(
         user_id=7,
         plan_code="month_1",
-        method="yookassa",
+        method="external_card",
         expected_scope="standard",
     )
 
@@ -282,14 +393,14 @@ async def test_create_web_checkout_uses_checkout_service():
 async def test_create_web_checkout_rejects_disabled_web_purchase(monkeypatch):
     monkeypatch.setattr(
         me_routes,
-        "get_product_feature_settings",
+        "get_effective_product_feature_settings",
         lambda: _features(web_purchase_enabled=False),
     )
     checkout_service = SimpleNamespace(create_checkout=AsyncMock())
 
     with pytest.raises(me_routes.HTTPException) as exc_info:
         await me_routes.create_web_checkout(
-            payload=me_routes.WebCheckoutRequest(plan_code="month_1", method="yookassa"),
+            payload=me_routes.WebCheckoutRequest(plan_code="month_1", method="external_card"),
             principal=SimpleNamespace(user_id=7),
             checkout_service=checkout_service,
         )
@@ -299,7 +410,37 @@ async def test_create_web_checkout_rejects_disabled_web_purchase(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_create_whitelist_web_checkout_uses_checkout_service():
+async def test_create_web_checkout_rejects_disabled_standard_config(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(standard_config_enabled=False),
+    )
+    checkout_service = SimpleNamespace(create_checkout=AsyncMock())
+
+    with pytest.raises(me_routes.HTTPException) as exc_info:
+        await me_routes.create_web_checkout(
+            payload=me_routes.WebCheckoutRequest(plan_code="month_1", method="external_card"),
+            principal=SimpleNamespace(user_id=7),
+            checkout_service=checkout_service,
+        )
+
+    assert exc_info.value.status_code == 404
+    checkout_service.create_checkout.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_traffic_limited_web_checkout_uses_checkout_service(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(commerce_enabled=True, web_purchase_enabled=True),
+    )
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(traffic_limited_config_enabled=True),
+    )
     principal = SimpleNamespace(user_id=7)
     checkout_service = SimpleNamespace(
         create_checkout=AsyncMock(
@@ -307,37 +448,57 @@ async def test_create_whitelist_web_checkout_uses_checkout_service():
                 payment_id="pay_2",
                 status="pending",
                 checkout_url="https://pay.example.com/2",
-                provider="cryptopay",
-                plan_code="whitelist_15gb",
+                provider="external_wallet",
+                plan_code="traffic_limited_15gb",
                 plan_name="Traffic-limited access 15 GB",
-                scope="whitelist",
+                scope="traffic_limited",
                 amount="99.00",
                 currency="RUB",
             )
         )
     )
 
-    result = await me_routes.create_whitelist_web_checkout(
-        payload=me_routes.WebCheckoutRequest(plan_code="whitelist_15gb", method="cryptopay"),
+    result = await me_routes.create_traffic_limited_web_checkout(
+        payload=me_routes.WebCheckoutRequest(plan_code="traffic_limited_15gb", method="external_wallet"),
         principal=principal,
         checkout_service=checkout_service,
     )
 
     assert result.payment_id == "pay_2"
-    assert result.scope == "whitelist"
+    assert result.scope == "traffic_limited"
     checkout_service.create_checkout.assert_awaited_once_with(
         user_id=7,
-        plan_code="whitelist_15gb",
-        method="cryptopay",
-        expected_scope="whitelist",
+        plan_code="traffic_limited_15gb",
+        method="external_wallet",
+        expected_scope="traffic_limited",
     )
+
+
+@pytest.mark.asyncio
+async def test_create_traffic_limited_web_checkout_rejects_disabled_traffic_module(monkeypatch):
+    monkeypatch.setattr(
+        me_routes,
+        "get_effective_product_feature_settings",
+        lambda: _features(traffic_limited_config_enabled=False),
+    )
+    checkout_service = SimpleNamespace(create_checkout=AsyncMock())
+
+    with pytest.raises(me_routes.HTTPException) as exc_info:
+        await me_routes.create_traffic_limited_web_checkout(
+            payload=me_routes.WebCheckoutRequest(plan_code="traffic_limited_15gb", method="external_wallet"),
+            principal=SimpleNamespace(user_id=7),
+            checkout_service=checkout_service,
+        )
+
+    assert exc_info.value.status_code == 404
+    checkout_service.create_checkout.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_apply_promo_code_rejects_disabled_promos(monkeypatch):
     monkeypatch.setattr(
         me_routes,
-        "get_product_feature_settings",
+        "get_effective_product_feature_settings",
         lambda: _features(promos_enabled=False),
     )
     promo_service = SimpleNamespace(apply_promo=AsyncMock())

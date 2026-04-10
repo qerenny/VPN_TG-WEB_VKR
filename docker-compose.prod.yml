@@ -1,25 +1,19 @@
 services:
-  xray:
-    build:
-      context: ./docker/xray
-      dockerfile: Dockerfile
-    container_name: ${CONTAINER_PREFIX:-remote-access}-xray
-    restart: unless-stopped
-    profiles:
-      - proxy
-    environment:
-      TELEGRAM_VLESS_URL: ${TELEGRAM_VLESS_URL:-}
-
   backend:
     image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/backend:latest
     container_name: ${CONTAINER_PREFIX:-remote-access}-backend
     restart: unless-stopped
     environment:
-      APP_CONFIG_PATH: /app/production_env.yaml
+      REMOTE_ACCESS_CONFIG_PATH: /app/.env.production
+      DB__HOST: postgres
+      DB__NAME: ${POSTGRES_DB:-remote_access}
+      DB__USERNAME: ${POSTGRES_USER:-remote_access}
+      DB__PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
+      REDIS__URL: redis://redis:6379/0
     volumes:
       - type: bind
-        source: ./production_env.yaml
-        target: /app/production_env.yaml
+        source: ./.env.production
+        target: /app/.env.production
         read_only: true
         bind:
           create_host_path: false
@@ -30,6 +24,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl --fail http://localhost:8000/health || exit 1"]
       interval: 30s
@@ -40,32 +36,39 @@ services:
   alembic:
     image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/alembic:latest
     container_name: ${CONTAINER_PREFIX:-remote-access}-alembic
+    restart: "no"
     environment:
-      APP_CONFIG_PATH: /app/production_env.yaml
+      REMOTE_ACCESS_CONFIG_PATH: /app/.env.production
+      DB__HOST: postgres
+      DB__NAME: ${POSTGRES_DB:-remote_access}
+      DB__USERNAME: ${POSTGRES_USER:-remote_access}
+      DB__PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - type: bind
-        source: ./production_env.yaml
-        target: /app/production_env.yaml
+        source: ./.env.production
+        target: /app/.env.production
         read_only: true
         bind:
           create_host_path: false
-    profiles:
-      - tools
 
   telegram_bot:
     image: ${IMAGE_PREFIX:-ghcr.io/example/remote-access-service}/telegram_bot:latest
     container_name: ${CONTAINER_PREFIX:-remote-access}-bot
     restart: unless-stopped
     environment:
-      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
-      APP_CONFIG_PATH: /app/production_env.yaml
+      REMOTE_ACCESS_CONFIG_PATH: /app/.env.production
+      DB__HOST: postgres
+      DB__NAME: ${POSTGRES_DB:-remote_access}
+      DB__USERNAME: ${POSTGRES_USER:-remote_access}
+      DB__PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
+      REDIS__URL: redis://redis:6379/0
     volumes:
       - type: bind
-        source: ./production_env.yaml
-        target: /app/production_env.yaml
+        source: ./.env.production
+        target: /app/.env.production
         read_only: true
         bind:
           create_host_path: false
@@ -74,6 +77,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/telegram-bot-ready && pgrep -f 'python -m telegram_bot.main' >/dev/null || exit 1"]
       interval: 10s

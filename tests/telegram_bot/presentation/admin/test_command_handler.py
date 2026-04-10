@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from shared.migration_support.models.users.user_model import User
 from telegram_bot.presentation.admin.command_handler import AdminCommandHandler
 
 
@@ -28,12 +27,13 @@ def handler():
         timestamp=MagicMock(),
         payment_queue_service=AsyncMock(),
         jwt_encoder=MagicMock(),
+        access_request_service=AsyncMock(),
     )
 
 
 @pytest.mark.asyncio
 async def test_show_user_management_includes_delete_button(handler):
-    handler.repo.get.return_value = User(
+    handler.repo.get.return_value = SimpleNamespace(
         tg_id=123,
         uuid="uuid-123",
         email="user@example.com",
@@ -137,3 +137,52 @@ async def test_show_admin_panel_sends_web_admin_link(handler):
     assert "временной ссылке" in kwargs["text"].lower()
     button = kwargs["reply_markup"].keyboard[0][0]
     assert button.url == "https://api.example.com/test-api/admin/session/bootstrap?grant=grant-token"
+
+
+@pytest.mark.asyncio
+async def test_admin_access_request_approve_reviews_request(handler):
+    handler.access_request_service.review_request.return_value = SimpleNamespace(
+        approved_template_label="1 месяц · Базовая конфигурация",
+        requested_template_label="1 месяц · Базовая конфигурация",
+    )
+    call = make_call(6884511529, "admin_access_request_approve:12:month_1")
+    call.message.message_id = 77
+
+    with (
+        patch("telegram_bot.presentation.admin.command_handler.BOT_ADMIN_IDS", [6884511529]),
+        patch("telegram_bot.presentation.admin.command_handler.bot.answer_callback_query", new_callable=AsyncMock),
+        patch("telegram_bot.presentation.admin.command_handler.bot.edit_message_text", new_callable=AsyncMock) as mock_edit_text,
+        patch("telegram_bot.presentation.admin.command_handler.bot.edit_message_reply_markup", new_callable=AsyncMock) as mock_edit,
+        patch("telegram_bot.presentation.admin.command_handler.bot.send_message", new_callable=AsyncMock) as mock_send,
+    ):
+        await handler.handle_admin_callback(call)
+
+    handler.access_request_service.review_request.assert_awaited_once()
+    mock_edit_text.assert_awaited_once()
+    mock_edit.assert_not_awaited()
+    mock_send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_admin_access_request_approve_marks_message_handled_when_already_reviewed(handler):
+    from fastapi import HTTPException
+
+    handler.access_request_service.review_request.side_effect = HTTPException(
+        status_code=409,
+        detail="Access request is already reviewed",
+    )
+    call = make_call(6884511529, "admin_access_request_approve:12:month_1")
+    call.message.message_id = 77
+
+    with (
+        patch("telegram_bot.presentation.admin.command_handler.BOT_ADMIN_IDS", [6884511529]),
+        patch("telegram_bot.presentation.admin.command_handler.bot.answer_callback_query", new_callable=AsyncMock),
+        patch("telegram_bot.presentation.admin.command_handler.bot.edit_message_text", new_callable=AsyncMock) as mock_edit_text,
+        patch("telegram_bot.presentation.admin.command_handler.bot.edit_message_reply_markup", new_callable=AsyncMock) as mock_edit_markup,
+        patch("telegram_bot.presentation.admin.command_handler.bot.send_message", new_callable=AsyncMock) as mock_send,
+    ):
+        await handler.handle_admin_callback(call)
+
+    mock_edit_text.assert_awaited_once()
+    mock_edit_markup.assert_not_awaited()
+    mock_send.assert_not_awaited()

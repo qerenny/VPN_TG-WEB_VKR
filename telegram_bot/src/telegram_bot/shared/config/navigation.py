@@ -1,27 +1,27 @@
-from shared.config.config import (
-    FRONTEND_ABOUT_LINK,
-    FRONTEND_DEVICES_LINK,
-    FRONTEND_FAQ_LINK,
-)
+from shared.config.settings import get_product_settings
 
 HELP = "📞 Поддержка"
-INSTRUCTIONS = "⚙️ Помощь"
+INSTRUCTIONS = "💡 Помощь"
 INSTRUCTIONS_DEVICES = "📱 Инструкции по установке"
 REFERRALS = "🎁 Приглашения"
 SUBSCRIPTIONS = "🔐 Получить доступ"
 MAIN_MENU = "🏠 В главное меню"
-FAQ = "❓ Часто задаваемые вопросы"
+FAQ = "❓ Частые вопросы"
 WHO_WE_ARE = "👥 О нас"
-NEWS_CHANNEL = "📢 Канал"
-NEWS_CHANNEL_SUBSCRIBED = "✅ Готово"
-FRONT_PROFILE = "📱 Мои подписки"
+INFO_CHANNEL = "📢 Канал с новостями"
+INFO_CHANNEL_CONFIRMED = "✅ Готово"
+FRONT_PROFILE = "🌐 Кабинет"
 OPEN_CABINET = "🌐 Открыть кабинет"
-WHITELIST_ACCESS = "🛰 Конфигурация с лимитом трафика"
+TRAFFIC_LIMITED_ACCESS = "📊 Доступ с лимитом трафика"
+ACCESS_REQUEST = "📝 Запросить доступ"
+ACCESS_REQUEST_STATUS = "📋 Статус заявки"
 BACK_TO_SUBSCRIPTIONS = "⬅️ К вариантам доступа"
 
-FAQ_LINK = FRONTEND_FAQ_LINK
-INSTRUCTIONS_DEVICES_LINK = FRONTEND_DEVICES_LINK
-WHO_WE_ARE_LINK = FRONTEND_ABOUT_LINK
+_PRODUCT_SETTINGS = get_product_settings()
+FAQ_LINK = _PRODUCT_SETTINGS.docs_links.get("faq", "")
+INSTRUCTIONS_DEVICES_LINK = _PRODUCT_SETTINGS.docs_links.get("devices", "")
+WHO_WE_ARE_LINK = _PRODUCT_SETTINGS.docs_links.get("about", "")
+DOCS_MENU_ENABLED = bool(FAQ_LINK or INSTRUCTIONS_DEVICES_LINK)
 
 EXPIRED = "0 дней"
 LESS_THAN_HOUR = "Менее часа"

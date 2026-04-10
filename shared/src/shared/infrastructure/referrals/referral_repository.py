@@ -7,7 +7,7 @@ from typing import List
 import sqlalchemy as sa
 from sqlmodel import select
 
-from shared.config.settings import RolloutFeatureFlags
+from shared.config.settings import RuntimeSyncFlags
 from shared.constants.referrals import (
     REFERRAL_REWARD_SOURCE_REFERRAL_REPOSITORY,
     REFERRAL_REWARD_SOURCE_TELEGRAM_START,
@@ -15,8 +15,8 @@ from shared.constants.referrals import (
     REFERRAL_TRIGGER_MANUAL_PENDING_BONUS,
 )
 from shared.infrastructure.base_repository import BaseRepository
-from shared.infrastructure.growth_sync_service import (
-    GrowthSyncService,
+from shared.infrastructure.growth_service import (
+    GrowthService,
     ReferralRewardContext,
 )
 from shared.models.growth.referral_edge_model import ReferralEdge
@@ -38,11 +38,10 @@ class ReferralSnapshot:
 
 
 class ReferralRepository(BaseRepository[ReferralSnapshot]):
-    def __init__(self, features: RolloutFeatureFlags | None = None):
+    def __init__(self):
         super().__init__(ReferralSnapshot)
-        self.features = features or RolloutFeatureFlags()
-        self.sync_service = GrowthSyncService(
-            RolloutFeatureFlags(db_dual_write_growth=True)
+        self.growth_service = GrowthService(
+            RuntimeSyncFlags(growth_sync_enabled=True)
         )
 
     @log_function_call(logger)
@@ -60,7 +59,7 @@ class ReferralRepository(BaseRepository[ReferralSnapshot]):
 
     @log_function_call(logger)
     async def update_referrer(self, tg_id: int, referrer_tg_id: int) -> None:
-        await self.sync_service.sync_referral_edge(
+        await self.growth_service.sync_referral_edge(
             referred_tg_id=int(tg_id),
             referrer_tg_id=int(referrer_tg_id),
             source=REFERRAL_REWARD_SOURCE_TELEGRAM_START,
@@ -91,7 +90,7 @@ class ReferralRepository(BaseRepository[ReferralSnapshot]):
     async def update_days_pending(self, tg_id: int, amount: int) -> None:
         if int(amount or 0) <= 0:
             return
-        await self.sync_service.sync_referral_reward(
+        await self.growth_service.sync_referral_reward(
             beneficiary_tg_id=int(tg_id),
             reward_days=int(amount),
             context=ReferralRewardContext(
@@ -103,15 +102,6 @@ class ReferralRepository(BaseRepository[ReferralSnapshot]):
             ),
             applied=False,
         )
-
-    async def reset_days_pending(self, tg_id: int) -> None:
-        return None
-
-    async def set_bonus_received(self, tg_id: int) -> None:
-        return None
-
-    async def increment_paid_count(self, tg_id: int) -> None:
-        return None
 
     async def is_symmetrical_referral(self, tg_id: int, referrer_tg_id: int) -> bool:
         async with self.get_session() as session:

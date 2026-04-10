@@ -1,9 +1,9 @@
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from shared.migration_support.models.users.user_model import User
 from telegram_bot.services.users.user_subscription_info_service import (
     UserSubscriptionInfoService,
 )
@@ -20,7 +20,7 @@ def service_and_mocks():
 
 @pytest.fixture
 def user_with_expiration():
-    return User(
+    return SimpleNamespace(
         tg_id=12345,
         uuid="uid",
         email="user@example.com",

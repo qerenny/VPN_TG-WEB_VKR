@@ -2,7 +2,7 @@ import asyncio
 import inspect
 from pathlib import Path
 
-from shared.config.settings import get_product_feature_settings, load_settings
+from shared.config.settings import get_effective_product_feature_settings, load_settings
 from shared.utils.logging_utils import logger
 from telegram_bot.bootstrap import TelegramBotApp, build_bot_app
 from telegram_bot.presentation.admin.admin_router import register_admin_routes
@@ -114,11 +114,20 @@ async def _wait_for_telegram_api(bot_instance) -> None:
             retry_delay = min(retry_delay * 2, POLLING_RETRY_MAX_DELAY_SECONDS)
 
 
+async def _run_disabled_bot_runtime() -> None:
+    logger.info("Telegram bot runtime is disabled by product settings. Container will stay idle.")
+    _mark_telegram_ready(True)
+    try:
+        await asyncio.Event().wait()
+    finally:
+        _mark_telegram_ready(False)
+
+
 async def run_bot(app: TelegramBotApp) -> None:
     logger.info("Connecting to external services...")
-    features = get_product_feature_settings()
+    features = get_effective_product_feature_settings()
     if not features.telegram_bot_enabled:
-        logger.info("Telegram bot runtime is disabled by product settings.")
+        await _run_disabled_bot_runtime()
         return
 
     register_start_routes(
@@ -127,16 +136,30 @@ async def run_bot(app: TelegramBotApp) -> None:
         app.support_handler,
         app.instructions_handler,
     )
-    subscription_route_kwargs = {"commerce_enabled": features.commerce_enabled}
-    if hasattr(features, "traffic_limited_config_enabled"):
-        subscription_route_kwargs["traffic_limited_config_enabled"] = (
-            features.traffic_limited_config_enabled
+    traffic_limited_config_enabled = getattr(
+        getattr(app, "subscription_menu_handler", None),
+        "traffic_limited_config_enabled",
+        getattr(features, "traffic_limited_config_enabled", True),
+    )
+    if not isinstance(traffic_limited_config_enabled, bool):
+        traffic_limited_config_enabled = getattr(
+            features,
+            "traffic_limited_config_enabled",
+            True,
         )
+
+    subscription_route_kwargs = {
+        "commerce_enabled": features.commerce_enabled,
+        "standard_config_enabled": getattr(features, "standard_config_enabled", True),
+        "traffic_limited_config_enabled": traffic_limited_config_enabled,
+    }
     register_subscription_routes(
         app.payment_command_handler,
         app.subscription_menu_handler,
+        app.subscription_access_request_handler,
         app.subscription_trial_handler,
-        app.subscription_news_channel_handler,
+        app.subscription_info_channel_handler,
+        access_requests_enabled=getattr(features, "access_requests_enabled", False),
         **subscription_route_kwargs,
     )
     if features.promos_enabled:
@@ -160,15 +183,15 @@ async def run_bot(app: TelegramBotApp) -> None:
     logger.info("Start of background tasks...")
     reminder_scheduler_task = asyncio.create_task(app.reminder_service.run_scheduler())
     reminder_worker_task = asyncio.create_task(app.reminder_service.run_worker())
-    whitelist_traffic_sync_task = None
-    traffic_limited_config_enabled = getattr(
-        features,
-        "traffic_limited_config_enabled",
-        True,
-    )
+    access_lifecycle_task = None
+    if getattr(features, "standard_config_enabled", True) or traffic_limited_config_enabled:
+        access_lifecycle_task = asyncio.create_task(app.access_lifecycle_service.run_scheduler())
+    else:
+        logger.info("Access lifecycle scheduler is disabled because all access modules are off.")
+    traffic_limited_sync_task = None
     if traffic_limited_config_enabled:
-        whitelist_traffic_sync_task = asyncio.create_task(
-            app.whitelist_traffic_sync_service.run_scheduler()
+        traffic_limited_sync_task = asyncio.create_task(
+            app.traffic_limited_sync_service.run_scheduler()
         )
     else:
         logger.info("Traffic-limited configuration sync is disabled by product settings.")
@@ -188,28 +211,37 @@ async def run_bot(app: TelegramBotApp) -> None:
         _mark_telegram_ready(False)
         reminder_scheduler_task.cancel()
         reminder_worker_task.cancel()
-        if whitelist_traffic_sync_task is not None:
-            whitelist_traffic_sync_task.cancel()
+        if access_lifecycle_task is not None:
+            access_lifecycle_task.cancel()
+        if traffic_limited_sync_task is not None:
+            traffic_limited_sync_task.cancel()
         for task in payment_tasks:
             task.cancel()
         await asyncio.gather(
             reminder_scheduler_task,
             reminder_worker_task,
-            *([whitelist_traffic_sync_task] if whitelist_traffic_sync_task is not None else []),
+            *([access_lifecycle_task] if access_lifecycle_task is not None else []),
+            *([traffic_limited_sync_task] if traffic_limited_sync_task is not None else []),
             *payment_tasks,
             return_exceptions=True,
         )
         await app.reminder_service.shutdown()
         await app.payment_fulfillment_service.shutdown()
+        if access_lifecycle_task is not None:
+            await app.access_lifecycle_service.shutdown()
 
 
 def main():
     logger.info("Bot entrypoint started.")
     settings = load_settings()
-    app = build_bot_app(settings)
+    features = get_effective_product_feature_settings()
 
     try:
-        asyncio.run(run_bot(app))
+        if not features.telegram_bot_enabled:
+            asyncio.run(_run_disabled_bot_runtime())
+        else:
+            app = build_bot_app(settings)
+            asyncio.run(run_bot(app))
     except KeyboardInterrupt:
         logger.info("Bot is stopped by User.")
     except Exception as e:

@@ -38,16 +38,16 @@ async def test_register_routes_and_callbacks(bot_patch):
     pay_cb = bot_patch.registered[0]
 
     pay_call = SimpleNamespace(
-        id="i", data="pay_method:yookassa:month1", message=SimpleNamespace(chat=SimpleNamespace(id=1))
+        id="i", data="pay_method:external_card:month1", message=SimpleNamespace(chat=SimpleNamespace(id=1))
     )
     await pay_cb(pay_call)
     bot_patch.answer_callback_query.assert_awaited_once_with("i")
-    handler.initiate_payment.assert_awaited_once_with(pay_call.message, PRODUCTS["month1"], "yookassa")
+    handler.initiate_payment.assert_awaited_once_with(pay_call.message, PRODUCTS["month1"], "external_card")
     bot_patch.delete_message.assert_awaited_once_with(chat_id=1, message_id=91)
 
 
 @pytest.mark.asyncio
-async def test_register_routes_supports_whitelist_products(bot_patch):
+async def test_register_routes_supports_traffic_limited_products(bot_patch):
     handler = AsyncMock()
     bot_patch.send_message.return_value = SimpleNamespace(message_id=92)
 
@@ -56,15 +56,15 @@ async def test_register_routes_supports_whitelist_products(bot_patch):
 
     pay_call = SimpleNamespace(
         id="i",
-        data="pay_method:cryptopay:whitelist15gb",
+        data="pay_method:external_wallet:traffic_limited15gb",
         message=SimpleNamespace(chat=SimpleNamespace(id=1)),
     )
     await pay_cb(pay_call)
 
     handler.initiate_payment.assert_awaited_once_with(
         pay_call.message,
-        PRODUCTS["whitelist15gb"],
-        "cryptopay",
+        PRODUCTS["traffic_limited15gb"],
+        "external_wallet",
     )
     bot_patch.delete_message.assert_awaited_once_with(chat_id=1, message_id=92)
 
@@ -87,7 +87,7 @@ async def test_payments_router_unknown_product(bot_patch):
     register_payments_routes(handler)
     pay_cb = bot_patch.registered[0]
     call = SimpleNamespace(
-        id="x", data="pay_method:yookassa:unknown", message=SimpleNamespace(chat=SimpleNamespace(id=3))
+        id="x", data="pay_method:external_card:unknown", message=SimpleNamespace(chat=SimpleNamespace(id=3))
     )
     await pay_cb(call)
     bot_patch.send_message.assert_awaited_with(3, "Ошибка: продукт не найден.")

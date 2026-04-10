@@ -5,6 +5,10 @@ alembic-revision:
 alembic-upgrade:
 	cd shared && poetry run alembic upgrade head
 
+alembic-upgrade-docker:
+	docker compose up -d postgres
+	docker compose run --rm alembic
+
 backend:
 	poetry run --directory backend uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
@@ -50,5 +54,5 @@ format_ruff:
 
 all: lint check_format
 
-.PHONY: backend frontend build-frontend deploy-frontend-prod dev bot install-backend install-bot install-shared install-frontend \
+.PHONY: backend frontend build-frontend deploy-frontend-prod dev bot install-backend install-bot install-shared install-frontend alembic-upgrade alembic-upgrade-docker \
         lint check_format format format_ruff all

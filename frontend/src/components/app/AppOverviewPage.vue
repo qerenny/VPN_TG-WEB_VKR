@@ -5,9 +5,11 @@ import { useToast } from 'vue-toastification'
 import axios from 'axios'
 import {
   applyPromoCode,
+  fetchAccessGrants,
   fetchLinks,
   fetchReferralStats,
   fetchSubscriptions,
+  type WebAccessGrantItem,
   type WebLinks,
   type WebReferralStats,
   type WebSubscriptions,
@@ -20,12 +22,14 @@ import {
   type FrontendPublicConfig,
 } from '../../api/publicConfig'
 import { useSessionState } from '../../stores/session'
+import { formatAccessTemplateLabel } from '../../utils/accessTemplates'
 
 const toast = useToast()
 const session = useSessionState()
 
 const links = ref<WebLinks | null>(null)
 const subscriptions = ref<WebSubscriptions | null>(null)
+const accessGrants = ref<WebAccessGrantItem[]>([])
 const referrals = ref<WebReferralStats | null>(null)
 const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 const loading = ref(true)
@@ -67,20 +71,104 @@ const needsEmailLink = computed(() => {
   return telegramLinked && !hasEmail
 })
 
-const activeCount = computed(() => {
-  if (!subscriptions.value) return 0
-  return [subscriptions.value.standard.is_active, subscriptions.value.whitelist.is_active].filter(Boolean).length
-})
-
-const loginMethod = computed(() => (session.me?.email ? 'Email и пароль' : 'Telegram'))
 const features = computed<FrontendFeatureFlags>(() => publicConfig.value.features || DEFAULT_FEATURE_FLAGS)
+const accountDisplayName = computed(() => (
+  session.me?.display_name
+  || (session.me?.telegram_username ? `@${session.me.telegram_username}` : null)
+  || 'Пользователь'
+))
+const loginMethod = computed(() => (
+  session.me?.email ? 'Email и пароль' : 'Telegram'
+))
+const showEmailFact = computed(() => true)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
+const accessRequestsEnabled = computed(() => features.value.access_requests_enabled)
+const referralsEnabled = computed(() => features.value.referrals_enabled)
+const promosEnabled = computed(() => features.value.promos_enabled && features.value.commerce_enabled)
+const standardConfigEnabled = computed(() => features.value.standard_config_enabled)
+const trafficLimitedConfigEnabled = computed(() => features.value.traffic_limited_config_enabled)
+const registryManagedAccess = computed(() => Boolean(subscriptions.value?.access_policy?.registry_managed))
+const visibleSubscriptionRows = computed(() => {
+  if (!subscriptions.value) return []
+
+  const rows = [
+    { key: 'standard', label: 'Базовая конфигурация', active: subscriptions.value.standard.is_active },
+    { key: 'traffic_limited', label: 'Лимит трафика', active: subscriptions.value.traffic_limited.is_active },
+  ]
+  return rows.filter((row) => {
+    if (row.key === 'standard') return standardConfigEnabled.value
+    if (row.key === 'traffic_limited') return trafficLimitedConfigEnabled.value
+    return true
+  })
+})
+const activeCount = computed(() => visibleSubscriptionRows.value.filter((row) => row.active).length)
+const accessActionLabel = computed(() => (
+  webPurchaseEnabled.value ? 'Получить доступ' : 'Запросить доступ'
+))
+const recentAccessGrants = computed(() => accessGrants.value.slice(0, 3))
+const activeAccessGrant = computed(() => accessGrants.value.find((item) => item.status === 'active') || null)
+
+function accessGrantSourceLabel(sourceType: string) {
+  const normalized = String(sourceType || '').trim().toLowerCase()
+  if (normalized === 'payment') return 'Оформление доступа'
+  if (normalized === 'request_approval') return 'Заявка'
+  if (normalized === 'access_registry') return 'Реестр доступа'
+  if (normalized === 'access_registry_auto_renew') return 'Автопродление по реестру'
+  if (normalized === 'admin_override') return 'Административная выдача'
+  return normalized || 'Источник не указан'
+}
+
+function accessGrantScopeLabel(scope: string) {
+  return String(scope || '').trim().toLowerCase() === 'traffic_limited'
+    ? 'Лимит трафика'
+    : 'Базовая конфигурация'
+}
+
+function accessGrantStatusLabel(status: string) {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'active') return 'Активен'
+  if (normalized === 'expired') return 'Истёк'
+  if (normalized === 'revoked') return 'Отозван'
+  return status || '—'
+}
+
+function activeAccessReasonTitle() {
+  const grant = activeAccessGrant.value
+  if (!grant) return 'Доступ сейчас не активирован'
+  return `Доступ активен через: ${accessGrantSourceLabel(grant.source_type)}`
+}
+
+function activeAccessReasonFacts() {
+  const grant = activeAccessGrant.value
+  if (!grant) return []
+  const facts: { label: string; value: string; icon: string }[] = [
+    { label: 'Шаблон', value: grant.template_label || formatAccessTemplateLabel(grant.template_code), icon: 'description' },
+    { label: 'Контур', value: accessGrantScopeLabel(grant.scope), icon: 'layers' },
+  ]
+  if (grant.expires_at) {
+    facts.push({ label: 'Действует до', value: new Date(grant.expires_at).toLocaleString(), icon: 'schedule' })
+  }
+  if (grant.quota_bytes) {
+    facts.push({ label: 'Лимит трафика', value: `${Math.round(grant.quota_bytes / (1024 * 1024 * 1024))} GB`, icon: 'data_usage' })
+  }
+  return facts
+}
+
+function accessGrantSourceIcon(sourceType: string) {
+  const normalized = String(sourceType || '').trim().toLowerCase()
+  if (normalized === 'payment') return 'credit_card'
+  if (normalized === 'request_approval') return 'approval'
+  if (normalized === 'access_registry') return 'badge'
+  if (normalized === 'access_registry_auto_renew') return 'autorenew'
+  if (normalized === 'admin_override') return 'admin_panel_settings'
+  return 'vpn_key'
+}
 
 async function copyReferralLink() {
   if (!referrals.value?.referral_link) return
   try {
     await navigator.clipboard.writeText(referrals.value.referral_link)
-    toast.success('Реферальная ссылка скопирована')
+    toast.success('Ссылка приглашения скопирована')
   } catch {
     toast.error('Не удалось скопировать ссылку')
   }
@@ -97,9 +185,10 @@ onMounted(async () => {
     publicConfig.value = configData
     links.value = linksData
     subscriptions.value = subscriptionsData
-    referrals.value = features.value.referrals_enabled
+    referrals.value = referralsEnabled.value
       ? await fetchReferralStats().catch(() => null)
       : null
+    accessGrants.value = await fetchAccessGrants().catch(() => [])
   } catch {
     toast.error('Не удалось загрузить кабинет')
   } finally {
@@ -166,16 +255,16 @@ onMounted(async () => {
             </div>
             <div>
               <p class="cabinet-kicker">Аккаунт</p>
-              <h2 class="ov-card__name">{{ session.me?.display_name || session.me?.email || 'Пользователь' }}</h2>
+              <h2 class="ov-card__name">{{ accountDisplayName }}</h2>
             </div>
           </div>
 
           <div class="ov-card__facts">
-            <div class="ov-fact">
+            <div v-if="showEmailFact" class="ov-fact">
               <span class="material-symbols-outlined ov-fact__icon">mail</span>
               <div>
                 <p class="ov-fact__label">Email</p>
-                <p class="ov-fact__value">{{ session.me?.email || session.me?.preferred_contact_email || 'Не указан' }}</p>
+                <p class="ov-fact__value">{{ session.me?.email || session.me?.preferred_contact_email || 'Нужно привязать' }}</p>
               </div>
             </div>
             <div class="ov-fact">
@@ -209,41 +298,113 @@ onMounted(async () => {
               <span class="material-symbols-outlined">vpn_key</span>
             </div>
             <div>
-              <p class="cabinet-kicker">Подписки</p>
+              <p class="cabinet-kicker">Доступ</p>
               <h2 class="ov-card__name">{{ activeCount > 0 ? `${activeCount} активных` : 'Нет активных' }}</h2>
             </div>
           </div>
 
           <div class="ov-subs-grid">
-            <div class="ov-sub-row">
-              <span class="ov-sub-row__dot" :class="subscriptions?.standard.is_active ? 'ov-sub-row__dot--ok' : ''"></span>
-              <span class="ov-sub-row__label">Базовая конфигурация</span>
-              <span class="ov-sub-row__status">{{ subscriptions?.standard.is_active ? 'Активен' : 'Нет' }}</span>
-            </div>
-            <div class="ov-sub-row">
-              <span class="ov-sub-row__dot" :class="subscriptions?.whitelist.is_active ? 'ov-sub-row__dot--ok' : ''"></span>
-              <span class="ov-sub-row__label">Лимит трафика</span>
-              <span class="ov-sub-row__status">{{ subscriptions?.whitelist.is_active ? 'Активны' : 'Нет' }}</span>
+            <div v-for="row in visibleSubscriptionRows" :key="row.key" class="ov-sub-row">
+              <span class="ov-sub-row__dot" :class="row.active ? 'ov-sub-row__dot--ok' : ''"></span>
+              <span class="ov-sub-row__label">{{ row.label }}</span>
+              <span class="ov-sub-row__status">{{ row.active ? 'Активен' : 'Нет' }}</span>
             </div>
           </div>
 
           <div class="cabinet-actions">
             <RouterLink class="cabinet-btn cabinet-btn--primary" to="/app/subscriptions">
               <span class="material-symbols-outlined">vpn_key</span>
-              Подписки
+              Мой доступ
             </RouterLink>
-            <RouterLink v-if="webPurchaseEnabled" class="cabinet-btn cabinet-btn--warm" to="/app/purchase">
-              <span class="material-symbols-outlined">shopping_cart</span>
-              Получить доступ
+            <RouterLink
+              v-if="!registryManagedAccess && (webPurchaseEnabled || accessRequestsEnabled)"
+              class="cabinet-btn cabinet-btn--warm"
+              to="/app/purchase"
+            >
+              <span class="material-symbols-outlined">vpn_key</span>
+              {{ accessActionLabel }}
             </RouterLink>
           </div>
+          <p v-if="registryManagedAccess" class="cabinet-note">
+            Доступ для этого аккаунта управляется через реестр и продлевается автоматически.
+          </p>
         </article>
       </div>
 
+      <article class="glass-card cabinet-panel ov-card ov-card--access-history">
+        <div class="ov-card__header">
+          <div class="ov-card__icon-circle ov-card__icon-circle--blue">
+            <span class="material-symbols-outlined">history</span>
+          </div>
+          <div>
+            <p class="cabinet-kicker">История доступа</p>
+            <h2 class="ov-card__name">{{ recentAccessGrants.length ? 'Последние выдачи' : 'Выдач пока нет' }}</h2>
+          </div>
+        </div>
+
+        <div v-if="recentAccessGrants.length" class="ov-grants-list">
+          <div v-for="grant in recentAccessGrants" :key="grant.id" class="ov-grant-row">
+            <div class="ov-grant-row__left">
+              <span class="material-symbols-outlined ov-grant-row__icon">{{ accessGrantSourceIcon(grant.source_type) }}</span>
+              <div>
+                <p class="ov-grant-row__title">{{ accessGrantSourceLabel(grant.source_type) }}</p>
+                <p class="cabinet-note">
+                  {{ accessGrantScopeLabel(grant.scope) }}
+                  <span v-if="grant.template_code"> · {{ grant.template_label || formatAccessTemplateLabel(grant.template_code) }}</span>
+                </p>
+              </div>
+            </div>
+            <div class="ov-grant-row__side">
+              <span class="cabinet-badge" :class="grant.status === 'active' ? 'cabinet-badge--ok' : 'cabinet-badge--muted'">
+                {{ accessGrantStatusLabel(grant.status) }}
+              </span>
+              <small class="cabinet-note">{{ new Date(grant.created_at).toLocaleString() }}</small>
+            </div>
+          </div>
+        </div>
+        <p v-else class="cabinet-note">История выдачи доступа появится после первой активации.</p>
+      </article>
+
+      <article class="glass-card cabinet-panel ov-card ov-card--access-reason">
+        <div class="ov-card__header">
+          <div class="ov-card__icon-circle ov-card__icon-circle--green">
+            <span class="material-symbols-outlined">fact_check</span>
+          </div>
+          <div>
+            <p class="cabinet-kicker">Почему доступ активен</p>
+            <h2 class="ov-card__name">{{ activeAccessReasonTitle() }}</h2>
+          </div>
+        </div>
+
+        <div v-if="activeAccessReasonFacts().length" class="ov-reason-facts">
+          <div v-for="fact in activeAccessReasonFacts()" :key="fact.label" class="ov-reason-fact">
+            <span class="material-symbols-outlined ov-reason-fact__icon">{{ fact.icon }}</span>
+            <div>
+              <p class="ov-reason-fact__label">{{ fact.label }}</p>
+              <p class="ov-reason-fact__value">{{ fact.value }}</p>
+            </div>
+          </div>
+        </div>
+        <p v-else class="cabinet-note">
+          Когда заявка будет одобрена или доступ будет оформлен, здесь появится объяснение, почему доступ активен и на каких условиях он выдан.
+        </p>
+
+        <div class="cabinet-actions">
+          <RouterLink
+            v-if="!registryManagedAccess && (webPurchaseEnabled || accessRequestsEnabled)"
+            class="cabinet-btn cabinet-btn--ghost"
+            to="/app/purchase"
+          >
+            <span class="material-symbols-outlined">vpn_key</span>
+            Запросить продление
+          </RouterLink>
+        </div>
+      </article>
+
       <!-- Referral stats + Promo code row -->
-      <div v-if="features.referrals_enabled || features.promos_enabled" class="cabinet-grid cabinet-grid--2">
+      <div v-if="referralsEnabled || promosEnabled" class="cabinet-grid cabinet-grid--2">
         <!-- Referral card -->
-        <article v-if="features.referrals_enabled" class="glass-card cabinet-panel ov-card ov-card--referral">
+        <article v-if="referralsEnabled" class="glass-card cabinet-panel ov-card ov-card--referral">
           <div class="ov-card__header">
             <div class="ov-card__icon-circle ov-card__icon-circle--green">
               <span class="material-symbols-outlined">group_add</span>
@@ -280,7 +441,7 @@ onMounted(async () => {
         </article>
 
         <!-- Promo code card -->
-        <article v-if="features.promos_enabled" class="glass-card cabinet-panel ov-card ov-card--promo">
+        <article v-if="promosEnabled" class="glass-card cabinet-panel ov-card ov-card--promo">
           <div class="ov-card__header">
             <div class="ov-card__icon-circle ov-card__icon-circle--purple">
               <span class="material-symbols-outlined">confirmation_number</span>
@@ -291,7 +452,7 @@ onMounted(async () => {
             </div>
           </div>
 
-          <p class="cabinet-note">Введи промокод, чтобы получить дни подписки.</p>
+          <p class="cabinet-note">Введи промокод, чтобы получить дополнительные дни доступа.</p>
 
           <form class="ov-promo-form" @submit.prevent="submitPromoCode">
             <input
@@ -347,7 +508,7 @@ onMounted(async () => {
 }
 
 .ov-card__icon-circle--blue {
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   background: linear-gradient(135deg, rgba(77, 143, 214, 0.15), rgba(100, 180, 255, 0.08));
 }
 
@@ -414,6 +575,105 @@ onMounted(async () => {
   background:
     radial-gradient(circle at 95% 5%, rgba(77, 143, 214, 0.08), transparent 40%),
     var(--cabinet-surface);
+}
+
+.ov-card--access-history {
+  background:
+    radial-gradient(circle at 95% 5%, rgba(77, 143, 214, 0.06), transparent 40%),
+    var(--cabinet-surface);
+}
+
+.ov-grants-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ov-grant-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(126, 170, 220, 0.08);
+  transition: transform 180ms, box-shadow 180ms;
+}
+
+.ov-grant-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(100, 120, 150, 0.06);
+}
+
+.ov-grant-row__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ov-grant-row__icon {
+  font-size: 22px;
+  color: var(--cabinet-traffic_limited);
+  flex-shrink: 0;
+}
+
+.ov-grant-row__title {
+  margin: 0 0 4px;
+  font: 600 14px/1.2 var(--font-ui);
+  color: var(--cabinet-text);
+}
+
+.ov-grant-row__side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ── Access reason facts ── */
+.ov-card--access-reason {
+  background:
+    radial-gradient(circle at 95% 5%, rgba(61, 168, 102, 0.06), transparent 40%),
+    var(--cabinet-surface);
+}
+
+.ov-reason-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.ov-reason-fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(126, 170, 220, 0.06);
+}
+
+.ov-reason-fact__icon {
+  font-size: 20px;
+  color: #3da866;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ov-reason-fact__label {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cabinet-muted);
+}
+
+.ov-reason-fact__value {
+  margin: 2px 0 0;
+  font: 600 14px/1.3 var(--font-ui);
+  color: var(--cabinet-text);
 }
 
 .ov-subs-grid {
@@ -593,7 +853,7 @@ onMounted(async () => {
 
 /* ── Blue variant (email linking) ── */
 .tg-banner--blue {
-  border-left-color: var(--cabinet-whitelist);
+  border-left-color: var(--cabinet-traffic_limited);
   background:
     radial-gradient(circle at top right, rgba(77, 143, 214, 0.1), transparent 40%),
     rgba(248, 252, 255, 0.96);
@@ -604,7 +864,7 @@ onMounted(async () => {
 }
 
 .tg-banner__icon--blue {
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
 }
 
 @media (max-width: 720px) {

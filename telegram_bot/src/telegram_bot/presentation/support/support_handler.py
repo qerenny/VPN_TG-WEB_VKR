@@ -21,7 +21,13 @@ class SupportHandler:
         
         text += f"\n\n{user_code_text}"
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(text=messages.get_random_message("support_chat_link"), url=BOT_SUPPORT_TG_LINK))
+        if BOT_SUPPORT_TG_LINK:
+            markup.add(
+                InlineKeyboardButton(
+                    text=messages.get_random_message("support_chat_link"),
+                    url=BOT_SUPPORT_TG_LINK,
+                )
+            )
         markup.add(InlineKeyboardButton(text=MAIN_MENU, callback_data="menu_start"))
 
         await render_photo_menu(

@@ -28,7 +28,8 @@ class WebLinksResponse(BaseModel):
 
 class WebSubscriptionsResponse(BaseModel):
     standard: dict
-    whitelist: dict
+    traffic_limited: dict
+    access_policy: dict | None = None
 
 
 class WebPaymentsResponse(BaseModel):
@@ -37,7 +38,7 @@ class WebPaymentsResponse(BaseModel):
 
 class WebPlanCatalogResponse(BaseModel):
     standard: list[dict]
-    whitelist: list[dict]
+    traffic_limited: list[dict]
 
 
 class WebReferralStatsResponse(BaseModel):

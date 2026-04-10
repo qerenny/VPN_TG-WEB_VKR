@@ -15,11 +15,10 @@ const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 const loading = ref(true)
 const features = computed<FrontendFeatureFlags>(() => publicConfig.value.features || DEFAULT_FEATURE_FLAGS)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
-const telegramProxyAvailable = computed(
-  () => features.value.telegram_proxy_enabled && Boolean(publicConfig.value.telegram_proxy_url),
-)
+const accessRequestsEnabled = computed(() => features.value.access_requests_enabled)
 const appLinks = computed(() => publicConfig.value.app_links || {})
-const subscriptionClientName = computed(() => 'Happ')
+const docsLinks = computed(() => publicConfig.value.product?.docs_links || {})
+const subscriptionClientName = computed(() => publicConfig.value.subscription_client?.name || 'Happ')
 
 onMounted(async () => {
   loading.value = true
@@ -62,8 +61,9 @@ onMounted(async () => {
         <div class="step">
           <span class="step__num">2</span>
           <div>
-            <p class="step__title">{{ webPurchaseEnabled ? 'Получите доступ' : 'Проверьте доступ' }}</p>
+            <p class="step__title">{{ webPurchaseEnabled ? 'Получите доступ' : accessRequestsEnabled ? 'Отправьте заявку' : 'Проверьте доступ' }}</p>
             <p v-if="webPurchaseEnabled" class="step__desc">Перейдите в раздел <RouterLink to="/app/purchase" class="step__link">Доступ</RouterLink> и выберите конфигурацию.</p>
+            <p v-else-if="accessRequestsEnabled" class="step__desc">Перейдите в раздел <RouterLink to="/app/purchase" class="step__link">Доступ</RouterLink> и отправьте заявку на получение доступа.</p>
             <p v-else class="step__desc">Откройте раздел <RouterLink to="/app/subscriptions" class="step__link">Подписки</RouterLink> и проверьте доступные конфигурации.</p>
           </div>
         </div>
@@ -94,12 +94,12 @@ onMounted(async () => {
           <h4 class="happ-group__title">iPhone / iPad</h4>
         </div>
         <div class="happ-row">
-          <a class="happ-tile" href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_ios_global || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">App Store</strong>
             <span class="happ-tile__label">World</span>
           </a>
-          <a class="happ-tile" :href="appLinks.happ_ios || 'https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973'" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_ios || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">App Store</strong>
             <span class="happ-tile__label">Россия</span>
@@ -114,12 +114,12 @@ onMounted(async () => {
           <h4 class="happ-group__title">Android</h4>
         </div>
         <div class="happ-row">
-          <a class="happ-tile" :href="appLinks.happ_android || 'https://play.google.com/store/apps/details?id=com.happproxy'" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_android || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">Google Play</strong>
             <span class="happ-tile__label">Play Market</span>
           </a>
-          <a class="happ-tile" href="https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_android_apk || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">apk_install</span>
             <strong class="happ-tile__title">APK</strong>
             <span class="happ-tile__label">Прямая загрузка</span>
@@ -134,22 +134,22 @@ onMounted(async () => {
           <h4 class="happ-group__title">Компьютеры</h4>
         </div>
         <div class="happ-row">
-          <a class="happ-tile" :href="appLinks.happ_windows || 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe'" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_windows || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">desktop_windows</span>
             <strong class="happ-tile__title">Windows</strong>
             <span class="happ-tile__label">x64 .exe</span>
           </a>
-          <a class="happ-tile" :href="appLinks.happ_macos || 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg'" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_macos_dmg || appLinks.happ_macos || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">laptop_mac</span>
             <strong class="happ-tile__title">macOS</strong>
             <span class="happ-tile__label">DMG Universal</span>
           </a>
-          <a class="happ-tile" :href="appLinks.happ_linux || 'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb'" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_linux || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">terminal</span>
             <strong class="happ-tile__title">Linux DEB</strong>
             <span class="happ-tile__label">Ubuntu / Debian</span>
           </a>
-          <a class="happ-tile" href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.rpm" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_linux_rpm || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">terminal</span>
             <strong class="happ-tile__title">Linux RPM</strong>
             <span class="happ-tile__label">Fedora / RHEL</span>
@@ -164,12 +164,12 @@ onMounted(async () => {
           <h4 class="happ-group__title">TV</h4>
         </div>
         <div class="happ-row">
-          <a class="happ-tile" href="https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_apple_tv || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">Apple TV</strong>
             <span class="happ-tile__label">tvOS</span>
           </a>
-          <a class="happ-tile" href="https://play.google.com/store/apps/details?id=com.happproxy" target="_blank" rel="noopener noreferrer">
+          <a class="happ-tile" :href="appLinks.happ_android_tv || appLinks.happ_android || '#'" target="_blank" rel="noopener noreferrer">
             <span class="material-symbols-outlined happ-tile__icon">storefront</span>
             <strong class="happ-tile__title">Android TV</strong>
             <span class="happ-tile__label">Google Play</span>
@@ -202,27 +202,59 @@ onMounted(async () => {
             <p class="help-link__desc">Напиши, если есть вопросы</p>
           </div>
         </a>
-        <RouterLink v-if="telegramProxyAvailable" class="help-link" to="/proxy">
-          <span class="material-symbols-outlined help-link__icon">vpn_lock</span>
-          <div>
-            <p class="help-link__title">Proxy для Telegram</p>
-            <p class="help-link__desc">Если Telegram не открывается</p>
-          </div>
-        </RouterLink>
         <RouterLink class="help-link" to="/app/subscriptions">
           <span class="material-symbols-outlined help-link__icon help-link__icon--accent">vpn_key</span>
           <div>
-            <p class="help-link__title">Мои подписки</p>
-            <p class="help-link__desc">Статус, трафик и ссылки</p>
+            <p class="help-link__title">Мой доступ</p>
+            <p class="help-link__desc">Статус, срок, трафик и ссылки</p>
           </div>
         </RouterLink>
-        <RouterLink v-if="webPurchaseEnabled" class="help-link" to="/app/purchase">
-          <span class="material-symbols-outlined help-link__icon">shopping_cart</span>
+        <RouterLink v-if="webPurchaseEnabled || accessRequestsEnabled" class="help-link" to="/app/purchase">
+          <span class="material-symbols-outlined help-link__icon">vpn_key</span>
           <div>
-            <p class="help-link__title">Получить доступ</p>
-            <p class="help-link__desc">Конфигурации и условия</p>
+            <p class="help-link__title">{{ webPurchaseEnabled ? 'Получить доступ' : 'Запросить доступ' }}</p>
+            <p class="help-link__desc">{{ webPurchaseEnabled ? 'Варианты доступа и условия' : 'Заявка и статус обработки' }}</p>
           </div>
         </RouterLink>
+        <a
+          v-if="docsLinks.faq"
+          class="help-link"
+          :href="docsLinks.faq"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span class="material-symbols-outlined help-link__icon">quiz</span>
+          <div>
+            <p class="help-link__title">FAQ</p>
+            <p class="help-link__desc">Частые вопросы и ответы</p>
+          </div>
+        </a>
+        <a
+          v-if="docsLinks.devices"
+          class="help-link"
+          :href="docsLinks.devices"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span class="material-symbols-outlined help-link__icon">devices</span>
+          <div>
+            <p class="help-link__title">Устройства</p>
+            <p class="help-link__desc">Инструкции по платформам</p>
+          </div>
+        </a>
+        <a
+          v-if="docsLinks.about"
+          class="help-link"
+          :href="docsLinks.about"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span class="material-symbols-outlined help-link__icon">info</span>
+          <div>
+            <p class="help-link__title">О сервисе</p>
+            <p class="help-link__desc">Общее описание и справка</p>
+          </div>
+        </a>
       </div>
 
       <div v-if="loading" class="cabinet-loader">
@@ -251,7 +283,7 @@ onMounted(async () => {
 
 .help-card__head-icon {
   font-size: 28px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   padding: 10px;
   border-radius: 16px;
   background: rgba(77, 143, 214, 0.08);
@@ -304,7 +336,7 @@ onMounted(async () => {
 }
 
 .step__link {
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   text-decoration: none;
   font-weight: 600;
 }
@@ -327,7 +359,7 @@ onMounted(async () => {
 
 .happ-group__icon {
   font-size: 22px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
 }
 
 .happ-group__title {
@@ -367,7 +399,7 @@ onMounted(async () => {
 
 .happ-tile__icon {
   font-size: 30px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
 }
 
 .happ-tile__title {
@@ -407,7 +439,7 @@ onMounted(async () => {
 
 .help-link__icon {
   font-size: 24px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   flex-shrink: 0;
 }
 

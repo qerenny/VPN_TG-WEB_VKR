@@ -14,7 +14,6 @@ def make_service(subscription_link: str | None = None):
     payment_processing = AsyncMock()
     queue_service = AsyncMock()
     subscription_service = AsyncMock()
-    sync_service = AsyncMock()
     telegram_link_service = AsyncMock()
     telegram_link_service.create_web_link.return_value = "https://example.com/app"
     subscription_service.get_subscription_link.return_value = subscription_link
@@ -30,17 +29,19 @@ def make_service(subscription_link: str | None = None):
         worker_pop_timeout_seconds=1,
         dedupe_ttl_seconds=60,
         telegram_link_service=telegram_link_service,
-        sync_service=sync_service,
     )
-    return service, subscription_service, repo, payment_processing, queue_service, sync_service, telegram_link_service
+    return service, subscription_service, repo, payment_processing, queue_service, telegram_link_service
 
 
 @pytest.mark.asyncio
 async def test_notify_user_adds_profile_navigation_buttons():
-    service, subscription_service, _, _, _, _, telegram_link_service = make_service("https://example.com/subscription")
+    service, subscription_service, _, _, _, telegram_link_service = make_service("https://example.com/subscription")
     bot_mock = MagicMock(send_message=AsyncMock(), send_photo=AsyncMock())
 
-    with patch("telegram_bot.services.payments.payment_fulfillment_service.bot", bot_mock):
+    with patch("telegram_bot.services.payments.payment_fulfillment_service.bot", bot_mock), patch(
+        "telegram_bot.services.payments.payment_fulfillment_service.PHOTO_menu",
+        "photo.png",
+    ):
         await service._notify_user(
             tg_id=1,
             subscription_updated_text="updated",
@@ -63,10 +64,13 @@ async def test_notify_user_adds_profile_navigation_buttons():
 
 @pytest.mark.asyncio
 async def test_notify_user_still_sends_navigation_and_bonus_message():
-    service, subscription_service, _, _, _, _, _ = make_service(None)
+    service, subscription_service, _, _, _, _ = make_service(None)
     bot_mock = MagicMock(send_message=AsyncMock(), send_photo=AsyncMock())
 
-    with patch("telegram_bot.services.payments.payment_fulfillment_service.bot", bot_mock):
+    with patch("telegram_bot.services.payments.payment_fulfillment_service.bot", bot_mock), patch(
+        "telegram_bot.services.payments.payment_fulfillment_service.PHOTO_menu",
+        "photo.png",
+    ):
         await service._notify_user(
             tg_id=1,
             subscription_updated_text="updated",
@@ -87,14 +91,17 @@ async def test_notify_user_still_sends_navigation_and_bonus_message():
 
 @pytest.mark.asyncio
 async def test_notify_user_can_skip_link_lookup_explicitly():
-    service, subscription_service, _, _, _, _, _ = make_service("https://example.com/subscription")
+    service, subscription_service, _, _, _, _ = make_service("https://example.com/subscription")
     bot_mock = MagicMock(send_message=AsyncMock(), send_photo=AsyncMock())
 
-    with patch("telegram_bot.services.payments.payment_fulfillment_service.bot", bot_mock):
+    with patch("telegram_bot.services.payments.payment_fulfillment_service.bot", bot_mock), patch(
+        "telegram_bot.services.payments.payment_fulfillment_service.PHOTO_menu",
+        "photo.png",
+    ):
         await service._notify_user(
             tg_id=1,
             subscription_updated_text="updated",
-            subscription_update_date_text="whitelist ready",
+            subscription_update_date_text="traffic_limited ready",
             grant_tg_id_text=None,
             grant_referrer_id_text=None,
             referrer_tg_id=None,
@@ -109,7 +116,7 @@ async def test_notify_user_can_skip_link_lookup_explicitly():
 
 @pytest.mark.asyncio
 async def test_process_queue_once_marks_payment_confirmed():
-    service, _, repo, payment_processing, queue_service, sync_service, _ = make_service(None)
+    service, _, repo, payment_processing, queue_service, _ = make_service(None)
     queue_service.pop_ready.return_value = {"payment_id": "pay-1", "attempt": 0}
     repo.get_by_payment_id.return_value = MagicMock(
         payment_id="pay-1",
@@ -117,7 +124,7 @@ async def test_process_queue_once_marks_payment_confirmed():
         payload="month1",
         status="paid",
         confirmed=False,
-        method="cryptopay",
+        method="external_wallet",
     )
     payment_processing.payment_processing.return_value = (
         "updated",
@@ -144,18 +151,18 @@ async def test_process_queue_once_marks_payment_confirmed():
 
 
 @pytest.mark.asyncio
-async def test_process_queue_once_does_not_lookup_whitelist_link_for_whitelist_payment():
-    service, subscription_service, repo, payment_processing, queue_service, _, _ = make_service(
+async def test_process_queue_once_does_not_lookup_traffic_limited_link_for_traffic_limited_payment():
+    service, subscription_service, repo, payment_processing, queue_service, _ = make_service(
         "https://example.com/subscription"
     )
     queue_service.pop_ready.return_value = {"payment_id": "pay-wl", "attempt": 0}
     repo.get_by_payment_id.return_value = MagicMock(
         payment_id="pay-wl",
         tg_id=1,
-        payload="whitelist15gb",
+        payload="traffic_limited15gb",
         status="paid",
         confirmed=False,
-        method="cryptopay",
+        method="external_wallet",
     )
     payment_processing.payment_processing.return_value = (
         "updated",
@@ -175,7 +182,7 @@ async def test_process_queue_once_does_not_lookup_whitelist_link_for_whitelist_p
 
 @pytest.mark.asyncio
 async def test_retry_or_dead_letter_refreshes_dedupe_for_retry():
-    service, _, _, _, queue_service, _, _ = make_service(None)
+    service, _, _, _, queue_service, _ = make_service(None)
 
     payload = {"payment_id": "pay-1", "attempt": 1}
     await service._retry_or_dead_letter(payload, "boom")
@@ -193,7 +200,7 @@ async def test_retry_or_dead_letter_refreshes_dedupe_for_retry():
 
 @pytest.mark.asyncio
 async def test_retry_or_dead_letter_refreshes_dedupe_for_dead_letter():
-    service, _, _, _, queue_service, _, _ = make_service(None)
+    service, _, _, _, queue_service, _ = make_service(None)
 
     payload = {"payment_id": "pay-1", "attempt": 3}
     await service._retry_or_dead_letter(payload, "boom")

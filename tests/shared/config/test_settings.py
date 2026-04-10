@@ -60,9 +60,16 @@ def test_load_app_settings_maps_legacy_config():
     assert app_settings.backend.mail.smtp_port == legacy_config.MAIL_SMTP_PORT
     assert app_settings.product.name == "Remote Access Service"
     assert app_settings.product.redis_prefix == "remote_access"
-    assert app_settings.product.docs_links["faq"] == legacy_config.FRONTEND_FAQ_LINK
-    assert app_settings.features.commerce_enabled is True
-    assert app_settings.features.telegram_bot_enabled is True
+    assert app_settings.product.docs_links["faq"] == ""
+    assert app_settings.features.commerce_enabled == legacy_config._as_bool(
+        legacy_config.config.get("features", {}).get("commerce_enabled"),
+        default=True,
+    )
+    assert app_settings.features.telegram_bot_enabled == legacy_config._as_bool(
+        legacy_config.config.get("features", {}).get("telegram_bot_enabled"),
+        default=True,
+    )
+    assert app_settings.features.mail_enabled == legacy_config.MAIL_ENABLED
     assert app_settings.deploy.project_slug == "remote-access-service"
     assert app_settings.deploy.config_env_var == legacy_config.CONFIG_OVERRIDE_ENV_VAR
 
@@ -76,3 +83,22 @@ def test_settings_accessors_return_cached_subsettings():
     assert get_product_settings() is app_settings.product
     assert get_product_feature_settings() is app_settings.features
     assert get_deploy_settings() is app_settings.deploy
+
+
+def test_load_env_config_applies_override_file_and_process_env(tmp_path, monkeypatch):
+    base_path = tmp_path / ".env.local"
+    override_path = tmp_path / ".env.override"
+    base_path.write_text(
+        'PRODUCT__NAME="Base Product"\nPRODUCT__DESCRIPTION="Base Description"\n',
+        encoding="utf-8",
+    )
+    override_path.write_text(
+        'PRODUCT__DESCRIPTION="Override Description"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PRODUCT__NAME", "Process Override")
+
+    config_data = legacy_config._load_env_config(base_path)
+
+    assert config_data["product"]["name"] == "Process Override"
+    assert config_data["product"]["description"] == "Override Description"

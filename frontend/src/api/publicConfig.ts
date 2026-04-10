@@ -3,23 +3,31 @@ import axios from 'axios'
 import { API_BASE_URL } from './base'
 
 export interface FrontendFeatureFlags {
+  access_requests_enabled: boolean
+  access_registry_enabled: boolean
+  access_admin_override_enabled: boolean
   commerce_enabled: boolean
   referrals_enabled: boolean
   promos_enabled: boolean
   web_purchase_enabled: boolean
   telegram_bot_enabled: boolean
-  telegram_proxy_enabled: boolean
+  mail_enabled: boolean
+  standard_config_enabled: boolean
   traffic_limited_config_enabled: boolean
 }
 
 export const DEFAULT_FEATURE_FLAGS: FrontendFeatureFlags = Object.freeze({
+  access_requests_enabled: false,
+  access_registry_enabled: false,
+  access_admin_override_enabled: false,
   commerce_enabled: true,
   referrals_enabled: true,
   promos_enabled: true,
   web_purchase_enabled: true,
   telegram_bot_enabled: true,
-  telegram_proxy_enabled: false,
-  traffic_limited_config_enabled: true,
+  mail_enabled: false,
+  standard_config_enabled: false,
+  traffic_limited_config_enabled: false,
 })
 
 export interface FrontendProductConfig {
@@ -55,16 +63,24 @@ export interface FrontendPublicConfig {
       label: string
     }>
   }
-  telegram_proxy_url?: string
   subscription_add_links?: {
     happ?: string
   }
+  subscription_client?: {
+    name?: string
+  }
   app_links?: {
+    happ_ios_global?: string
     happ_ios?: string
     happ_android?: string
+    happ_android_apk?: string
     happ_windows?: string
     happ_macos?: string
+    happ_macos_dmg?: string
     happ_linux?: string
+    happ_linux_rpm?: string
+    happ_apple_tv?: string
+    happ_android_tv?: string
     windows_nekoray?: string
   }
   instruction_links?: {
@@ -82,8 +98,8 @@ export const EMPTY_PUBLIC_CONFIG: FrontendPublicConfig = Object.freeze({
   features: DEFAULT_FEATURE_FLAGS,
   support_link: undefined,
   payment_methods: { primary: 'external_card', items: [] },
-  telegram_proxy_url: undefined,
   subscription_add_links: {},
+  subscription_client: { name: 'Happ' },
   app_links: {},
   instruction_links: {},
 })
@@ -94,8 +110,8 @@ export function createEmptyPublicConfig(): FrontendPublicConfig {
     product: { ...DEFAULT_PRODUCT_CONFIG, docs_links: {} },
     support_link: undefined,
     payment_methods: { primary: 'external_card', items: [] },
-    telegram_proxy_url: undefined,
     subscription_add_links: {},
+    subscription_client: { name: 'Happ' },
     app_links: {},
     instruction_links: {},
   }
@@ -124,6 +140,10 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
     value.app_links && typeof value.app_links === 'object'
       ? (value.app_links as FrontendPublicConfig['app_links'])
       : {}
+  const subscriptionClient =
+    value.subscription_client && typeof value.subscription_client === 'object'
+      ? (value.subscription_client as FrontendPublicConfig['subscription_client'])
+      : { name: 'Happ' }
 
   const instructionLinks =
     value.instruction_links && typeof value.instruction_links === 'object'
@@ -158,6 +178,18 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
           : {},
     },
     features: {
+      access_requests_enabled:
+        typeof rawFeatures.access_requests_enabled === 'boolean'
+          ? rawFeatures.access_requests_enabled
+          : DEFAULT_FEATURE_FLAGS.access_requests_enabled,
+      access_registry_enabled:
+        typeof rawFeatures.access_registry_enabled === 'boolean'
+          ? rawFeatures.access_registry_enabled
+          : DEFAULT_FEATURE_FLAGS.access_registry_enabled,
+      access_admin_override_enabled:
+        typeof rawFeatures.access_admin_override_enabled === 'boolean'
+          ? rawFeatures.access_admin_override_enabled
+          : DEFAULT_FEATURE_FLAGS.access_admin_override_enabled,
       commerce_enabled:
         typeof rawFeatures.commerce_enabled === 'boolean'
           ? rawFeatures.commerce_enabled
@@ -178,10 +210,14 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
         typeof rawFeatures.telegram_bot_enabled === 'boolean'
           ? rawFeatures.telegram_bot_enabled
           : DEFAULT_FEATURE_FLAGS.telegram_bot_enabled,
-      telegram_proxy_enabled:
-        typeof rawFeatures.telegram_proxy_enabled === 'boolean'
-          ? rawFeatures.telegram_proxy_enabled
-          : DEFAULT_FEATURE_FLAGS.telegram_proxy_enabled,
+      mail_enabled:
+        typeof rawFeatures.mail_enabled === 'boolean'
+          ? rawFeatures.mail_enabled
+          : DEFAULT_FEATURE_FLAGS.mail_enabled,
+      standard_config_enabled:
+        typeof rawFeatures.standard_config_enabled === 'boolean'
+          ? rawFeatures.standard_config_enabled
+          : DEFAULT_FEATURE_FLAGS.standard_config_enabled,
       traffic_limited_config_enabled:
         typeof rawFeatures.traffic_limited_config_enabled === 'boolean'
           ? rawFeatures.traffic_limited_config_enabled
@@ -189,8 +225,8 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
     },
     support_link: typeof value.support_link === 'string' ? value.support_link : undefined,
     payment_methods: paymentMethods,
-    telegram_proxy_url: typeof value.telegram_proxy_url === 'string' ? value.telegram_proxy_url : undefined,
     subscription_add_links: subscriptionAddLinks,
+    subscription_client: subscriptionClient,
     app_links: appLinks,
     instruction_links: instructionLinks,
   }

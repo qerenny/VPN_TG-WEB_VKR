@@ -3,7 +3,7 @@ PLAN_KIND_BONUS = "bonus"
 PLAN_KIND_PAID = "paid"
 
 SUBSCRIPTION_PAYLOAD_TRIAL_3D = "day3"
-SUBSCRIPTION_PAYLOAD_NEWS_BONUS_4D = "day4"
+SUBSCRIPTION_PAYLOAD_INFO_CHANNEL_BONUS_4D = "day4"
 
 PROVIDER_STATUS_PAID = frozenset({"paid", "succeeded"})
 PROVIDER_STATUS_CANCELED = frozenset({"canceled", "cancelled", "expired"})

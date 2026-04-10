@@ -5,8 +5,8 @@ from shared.infrastructure.referrals.referral_repository import (
     ReferralRepository,
 )
 from shared.infrastructure.users.telegram_user_repository import TelegramUserRepository
-from shared.infrastructure.growth_sync_service import (
-    GrowthSyncService,
+from shared.infrastructure.growth_service import (
+    GrowthService,
     ReferralRewardContext,
 )
 from shared.constants.referrals import (
@@ -40,13 +40,13 @@ class ReferralBonusService:
         repo_user: TelegramUserRepository,
         timestamp: TimestampUtils,
         client: ClientManager,
-        sync_service: GrowthSyncService | None = None,
+        growth_service: GrowthService | None = None,
     ):
         self.repo_referrals = repo_referrals
         self.timestamp = timestamp
         self.repo_user = repo_user
         self.client = client
-        self.sync_service = sync_service
+        self.growth_service = growth_service
         self.default_referrer_bonus_days, self.referrer_bonus_rules = (
             _load_referral_reward_rules()
         )
@@ -80,7 +80,7 @@ class ReferralBonusService:
 
         if not expiration_date or expiration_date <= now:
             logger.info(f"User {tg_id} not active; keeping referral bonus pending")
-            if not self._is_growth_sync_enabled():
+            if not self._is_growth_service_enabled():
                 await self.repo_referrals.update_days_pending(tg_id, days_amount)
         else:
             logger.info(f"User {tg_id} has active subscription; updating via client")
@@ -173,10 +173,10 @@ class ReferralBonusService:
         reward_context: ReferralRewardContext | None,
         applied: bool,
     ) -> None:
-        if self.sync_service is None or reward_context is None:
+        if self.growth_service is None or reward_context is None:
             return
         try:
-            await self.sync_service.sync_referral_reward(
+            await self.growth_service.sync_referral_reward(
                 beneficiary_tg_id=beneficiary_tg_id,
                 reward_days=reward_days,
                 context=reward_context,
@@ -184,27 +184,27 @@ class ReferralBonusService:
             )
         except Exception as err:
             logger.error(
-                "Phase 3 dual write failed for referral reward "
+                "Failed to persist referral reward "
                 f"beneficiary_tg_id={beneficiary_tg_id}, "
                 f"trigger_type={reward_context.trigger_type}, "
                 f"trigger_ref={reward_context.trigger_ref}: {err!r}"
             )
 
-    def _is_growth_sync_enabled(self) -> bool:
-        if self.sync_service is None:
+    def _is_growth_service_enabled(self) -> bool:
+        if self.growth_service is None:
             return False
-        features = getattr(self.sync_service, "features", None)
-        return bool(getattr(features, "db_dual_write_growth", False))
+        sync_flags = getattr(self.growth_service, "sync_flags", None)
+        return bool(getattr(sync_flags, "growth_sync_enabled", False))
 
     async def _apply_pending_rewards(self, beneficiary_tg_id: int) -> None:
-        if self.sync_service is None:
+        if self.growth_service is None:
             return
         try:
-            await self.sync_service.apply_pending_referral_rewards(
+            await self.growth_service.apply_pending_referral_rewards(
                 beneficiary_tg_id=beneficiary_tg_id,
             )
         except Exception as err:
             logger.error(
-                "Phase 3 dual write failed while applying pending referral rewards "
+                "Failed while applying pending referral rewards "
                 f"beneficiary_tg_id={beneficiary_tg_id}: {err!r}"
             )

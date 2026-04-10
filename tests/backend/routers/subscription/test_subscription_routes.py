@@ -182,21 +182,21 @@ async def test_get_combined_subscription_returns_redis_cached_headers():
 
 
 @pytest.mark.asyncio
-async def test_get_whitelist_combined_subscription_uses_whitelist_cache_namespace():
+async def test_get_traffic_limited_combined_subscription_uses_traffic_limited_cache_namespace():
     redis_client = AsyncMock()
-    redis_client.get.return_value = b"cached-whitelist-subscription"
+    redis_client.get.return_value = b"cached-traffic_limited-subscription"
     request = make_request(redis_client=redis_client, http_client=None)
 
-    result = await routes.get_whitelist_combined_subscription(request, uuid="uuid-wl-2")
+    result = await routes.get_traffic_limited_combined_subscription(request, uuid="uuid-wl-2")
 
-    assert result.body.decode("utf-8") == "cached-whitelist-subscription"
+    assert result.body.decode("utf-8") == "cached-traffic_limited-subscription"
     raw_headers = dict(result.raw_headers)
     assert (
         raw_headers[b"profile-title"].decode("utf-8")
-        == routes.WHITELIST_SUBSCRIPTION_PROFILE_TITLE
+        == routes.TRAFFIC_LIMITED_SUBSCRIPTION_PROFILE_TITLE
     )
     redis_client.get.assert_awaited_once_with(
-        f"{routes.SUBSCRIPTION_REDIS_PREFIX}:subscription:build:whitelist:uuid-wl-2"
+        f"{routes.SUBSCRIPTION_REDIS_PREFIX}:subscription:build:traffic_limited:uuid-wl-2"
     )
 
 
@@ -264,46 +264,46 @@ async def test_get_subscription_formatted_info_calls_service_and_writes_redis():
 
 
 @pytest.mark.asyncio
-async def test_get_whitelist_subscription_formatted_info_calls_service_and_writes_redis():
+async def test_get_traffic_limited_subscription_formatted_info_calls_service_and_writes_redis():
     redis_client = AsyncMock()
     redis_client.get.return_value = None
     request = make_request(redis_client=redis_client)
     service = AsyncMock()
     service.get_subscription_formatted_info.return_value = {"sub_link": "https://sub-wl"}
 
-    result = await routes.get_whitelist_subscription_formatted_info(
+    result = await routes.get_traffic_limited_subscription_formatted_info(
         "token-wl",
         request,
         service=service,
     )
 
-    assert result == {"sub_link": "https://sub-wl", "scope": "whitelist"}
+    assert result == {"sub_link": "https://sub-wl", "scope": "traffic_limited"}
     service.get_subscription_formatted_info.assert_awaited_once_with(
         "token-wl",
-        scope="whitelist",
+        scope="traffic_limited",
     )
     redis_client.set.assert_awaited_once_with(
-        f"{routes.SUBSCRIPTION_REDIS_PREFIX}:subscription:info:whitelist:v1:token-wl",
-        json.dumps({"sub_link": "https://sub-wl", "scope": "whitelist"}, ensure_ascii=False),
+        f"{routes.SUBSCRIPTION_REDIS_PREFIX}:subscription:info:traffic_limited:v1:token-wl",
+        json.dumps({"sub_link": "https://sub-wl", "scope": "traffic_limited"}, ensure_ascii=False),
         ex=routes.REDIS_SUBSCRIPTION_INFO_TTL,
     )
 
 
 @pytest.mark.asyncio
-async def test_get_whitelist_subscription_formatted_info_returns_legacy_redis_payload_with_scope():
+async def test_get_traffic_limited_subscription_formatted_info_returns_legacy_redis_payload_with_scope():
     redis_client = AsyncMock()
     redis_client.get.return_value = json.dumps({"sub_is_active": False}).encode("utf-8")
     request = make_request(redis_client=redis_client)
     service = AsyncMock()
 
-    result = await routes.get_whitelist_subscription_formatted_info(
+    result = await routes.get_traffic_limited_subscription_formatted_info(
         "token-wl-legacy",
         request,
         service=service,
     )
 
-    assert result == {"sub_is_active": False, "scope": "whitelist"}
+    assert result == {"sub_is_active": False, "scope": "traffic_limited"}
     redis_client.get.assert_awaited_once_with(
-        f"{routes.SUBSCRIPTION_REDIS_PREFIX}:subscription:info:whitelist:v1:token-wl-legacy"
+        f"{routes.SUBSCRIPTION_REDIS_PREFIX}:subscription:info:traffic_limited:v1:token-wl-legacy"
     )
     service.get_subscription_formatted_info.assert_not_awaited()

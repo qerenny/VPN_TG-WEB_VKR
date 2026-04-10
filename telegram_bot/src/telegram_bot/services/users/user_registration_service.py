@@ -17,7 +17,6 @@ class UserRegistrationService:
         repo: TelegramUserRepository,
         timestamp: TimestampUtils,
         uuidgen: UUIDGenerator,
-        sync_service=None,
     ):
         self.repo = repo
         self.timestamp = timestamp
@@ -47,7 +46,7 @@ class UserRegistrationService:
                 sub_id=sub_id,
                 login_date=login_date,
                 trial_date=None,
-                news_channel_date=None,
+                info_channel_date=None,
             )
 
             try:

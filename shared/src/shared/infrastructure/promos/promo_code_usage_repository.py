@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from shared.config.settings import RolloutFeatureFlags
+from shared.config.settings import RuntimeSyncFlags
 from shared.infrastructure.base_repository import BaseRepository
-from shared.infrastructure.growth_sync_service import GrowthSyncService
+from shared.infrastructure.growth_service import GrowthService
 from shared.models.growth.promo_code_model import PromoCode as PromoCodeV2
 from shared.models.growth.promo_redemption_model import PromoRedemption
 from shared.models.users.telegram_account_model import TelegramAccount
@@ -13,11 +13,10 @@ logger = setup_logger("promo-code-usage.repository", "database.log")
 
 
 class PromoCodeUsageRepository(BaseRepository[PromoRedemption]):
-    def __init__(self, features: RolloutFeatureFlags | None = None):
+    def __init__(self):
         super().__init__(PromoRedemption)
-        self.features = features or RolloutFeatureFlags()
-        self.sync_service = GrowthSyncService(
-            RolloutFeatureFlags(db_dual_write_growth=True)
+        self.growth_service = GrowthService(
+            RuntimeSyncFlags(growth_sync_enabled=True)
         )
 
     @log_function_call(logger)
@@ -38,7 +37,7 @@ class PromoCodeUsageRepository(BaseRepository[PromoRedemption]):
 
     @log_function_call(logger)
     async def mark_used(self, tg_id: int, code: str) -> None:
-        await self.sync_service.sync_promo_redemption(
+        await self.growth_service.sync_promo_redemption(
             tg_id=int(tg_id),
             promo_code=str(code),
         )

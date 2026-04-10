@@ -7,7 +7,6 @@ from shared.constants.payments import PROVIDER_STATUS_PAID
 from shared.infrastructure.payments.payment_repository import (
     PaymentRepository,
 )
-from shared.infrastructure.payment_sync_service import PaymentSyncService
 from shared.utils.logging_utils import logger
 
 
@@ -19,14 +18,12 @@ class PaymentWebhookService:
         ready_queue_key: str,
         dedupe_prefix: str,
         dedupe_ttl_seconds: int,
-        sync_service: PaymentSyncService | None = None,
     ):
         self.repo = repo
         self.redis_client = redis_client
         self.ready_queue_key = ready_queue_key
         self.dedupe_prefix = dedupe_prefix
         self.dedupe_ttl_seconds = dedupe_ttl_seconds
-        self.sync_service = sync_service
 
     async def process_status_update(
         self,
@@ -65,41 +62,12 @@ class PaymentWebhookService:
             # confirmed=True only after full fulfillment pipeline.
             confirmed=False,
         )
-        payment.status = status
-        payment.confirmed = False
-        await self._sync_v2_payment(
-            payment,
-            method=method,
-            payload=payload,
-        )
 
         queued = False
         if status in PROVIDER_STATUS_PAID:
             queued = await self._enqueue_for_fulfillment(payment_id)
 
         return {"accepted": True, "status": status, "queued": queued}
-
-    async def _sync_v2_payment(
-        self,
-        payment,
-        *,
-        method: str,
-        payload: dict[str, Any] | None,
-    ) -> None:
-        if self.sync_service is None or getattr(payment, "tg_id", None) is None:
-            return
-        try:
-            await self.sync_service.sync_legacy_payment(
-                payment,
-                provider=method,
-                provider_payload=payload,
-                create_webhook_event=payload is not None,
-            )
-        except Exception as err:
-            logger.error(
-                "Phase 2 dual write failed for payment webhook "
-                f"payment_id={getattr(payment, 'payment_id', None)}: {err!r}"
-            )
 
     async def _enqueue_for_fulfillment(self, payment_id: str) -> bool:
         if self.redis_client is None:

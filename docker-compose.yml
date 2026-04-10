@@ -1,15 +1,4 @@
 services:
-  xray:
-    build:
-      context: ./docker/xray
-      dockerfile: Dockerfile
-    container_name: ${CONTAINER_PREFIX:-remote-access}-xray
-    restart: unless-stopped
-    profiles:
-      - proxy
-    environment:
-      TELEGRAM_VLESS_URL: ${TELEGRAM_VLESS_URL:-}
-
   postgres:
     image: postgres:15
     container_name: ${CONTAINER_PREFIX:-remote-access}-postgres
@@ -47,14 +36,18 @@ services:
     container_name: ${CONTAINER_PREFIX:-remote-access}-backend
     restart: unless-stopped
     environment:
-      APP_CONFIG_PATH: /app/local_env.yaml
+      REMOTE_ACCESS_CONFIG_PATH: /app/.env.local
+      DB__HOST: postgres
+      DB__NAME: ${POSTGRES_DB:-remote_access}
+      DB__USERNAME: ${POSTGRES_USER:-remote_access}
+      DB__PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
+      REDIS__URL: redis://redis:6379/0
     volumes:
       - ./shared:/app/shared
       - ./backend:/app/backend 
-      - ./local_env.yaml:/app/local_env.yaml
+      - ./telegram_bot:/app/telegram_bot
+      - ./.env.local:/app/.env.local
 
-    env_file:
-      - local_env.yaml
     ports:
       - "8000:8000"
     depends_on:
@@ -62,6 +55,8 @@ services:
         condition: service_healthy 
       redis:
         condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
 
   telegram_bot:
     build:
@@ -70,19 +65,23 @@ services:
     container_name: ${CONTAINER_PREFIX:-remote-access}-bot
     restart: unless-stopped
     environment:
-      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
-      APP_CONFIG_PATH: /app/local_env.yaml
+      REMOTE_ACCESS_CONFIG_PATH: /app/.env.local
+      DB__HOST: postgres
+      DB__NAME: ${POSTGRES_DB:-remote_access}
+      DB__USERNAME: ${POSTGRES_USER:-remote_access}
+      DB__PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
+      REDIS__URL: redis://redis:6379/0
     volumes:
       - ./shared:/app/shared
       - ./telegram_bot:/app/telegram_bot # Проброс для разработки
-      - ./local_env.yaml:/app/local_env.yaml
-    env_file:
-      - local_env.yaml
+      - ./.env.local:/app/.env.local
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/telegram-bot-ready && pgrep -f 'python -m telegram_bot.main' >/dev/null || exit 1"]
       interval: 10s
@@ -95,13 +94,18 @@ services:
       context: .
       dockerfile: shared/alembic/Dockerfile
     container_name: ${CONTAINER_PREFIX:-remote-access}-alembic
-    profiles: ["tools"] # Не запускается сам по себе
+    restart: "no"
     environment:
-      APP_CONFIG_PATH: /app/local_env.yaml
+      REMOTE_ACCESS_CONFIG_PATH: /app/.env.local
+      DB__HOST: postgres
+      DB__NAME: ${POSTGRES_DB:-remote_access}
+      DB__USERNAME: ${POSTGRES_USER:-remote_access}
+      DB__PASSWORD: ${POSTGRES_PASSWORD:-remote_access}
     volumes:
-      - ./local_env.yaml:/app/local_env.yaml
-    env_file:
-      - local_env.yaml
+      - ./shared:/app/shared
+      - ./shared/alembic:/app/alembic
+      - ./shared/alembic.ini:/app/alembic.ini
+      - ./.env.local:/app/.env.local
     depends_on:
       postgres:
         condition: service_healthy

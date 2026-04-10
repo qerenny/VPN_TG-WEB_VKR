@@ -7,7 +7,8 @@ from shared.infrastructure.users.telegram_user_repository import (
     TelegramUserRepository,
     TelegramUserSnapshot,
 )
-from shared.infrastructure.vpn_topology_sync_service import VpnTopologySyncService
+from shared.infrastructure.vpn_topology_service import VpnTopologyService
+from shared.product_constants import PRODUCT_SCOPE_STANDARD
 from shared.utils.logging_utils import logger
 from shared.utils.timestamp_utils import TimestampUtils
 from telegram_bot.infrastructure.api.api_connection import APIConnection
@@ -24,19 +25,25 @@ class ClientManager:
         timestamp: TimestampUtils,
         jsonutils: JSONBuilder,
         uuidgen: UUIDGenerator,
-        topology_sync_service: VpnTopologySyncService | None = None,
+        topology_service: VpnTopologyService | None = None,
     ):
         self.repo = repo
         self.timestamp = timestamp
         self.jsonutils = jsonutils
         self.uuidgen = uuidgen
         self.headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        self.topology_sync_service = topology_sync_service
+        self.topology_service = topology_service
 
     @staticmethod
     def _build_inbound_email(base_email: str, inbound_id: int) -> str:
         """Build per-inbound email/remark suffix in a stable format: name_1, name_2."""
         return f"{base_email}_{inbound_id}"
+
+    @staticmethod
+    def _normalize_inbound_ids(raw_inbound_ids) -> list[int]:
+        if isinstance(raw_inbound_ids, list):
+            return [int(inbound_id) for inbound_id in raw_inbound_ids]
+        return [int(raw_inbound_ids)]
 
     @staticmethod
     def _is_empty_client_id_error(response_data: dict) -> bool:
@@ -88,9 +95,7 @@ class ClientManager:
                 inbound_url = build_inbound_api_base(server_config)
 
                 # Ensure inbound_ids is a list
-                inbound_ids = server_config["inbound_id"]
-                if not isinstance(inbound_ids, list):
-                    inbound_ids = [inbound_ids]
+                inbound_ids = self._normalize_inbound_ids(server_config["inbound_id"])
 
                 await handler_func(
                     session=session,
@@ -205,6 +210,10 @@ class ClientManager:
             inbound_ids: list[int],
         ):
             try:
+                expected_emails = {
+                    self._build_inbound_email(email, inbound_id)
+                    for inbound_id in inbound_ids
+                }
                 for inbound_id in inbound_ids:
                     current_email = self._build_inbound_email(email, inbound_id)
                     client_template = build_client_template(inbound_id)
@@ -226,6 +235,33 @@ class ClientManager:
                     response.raise_for_status()
                     response_data = response.json()
                     if not response_data.get("success", True):
+                        if self._is_empty_client_id_error(response_data):
+                            fallback_url = inbound_url + "addClient"
+                            logger.warning(
+                                f"[{server_name}] Scoped update returned empty client ID for "
+                                f"uuid={client_uuid}; falling back to scoped addClient"
+                            )
+                            fallback_response = await session.post(
+                                fallback_url,
+                                headers=self.headers,
+                                json=data,
+                            )
+                            fallback_response.raise_for_status()
+                            fallback_data = fallback_response.json()
+                            if fallback_data.get("success", True):
+                                continue
+                            if self._is_expected_duplicate_email_error(
+                                fallback_data,
+                                expected_emails,
+                            ):
+                                logger.warning(
+                                    f"[{server_name}] Duplicate scoped email returned during fallback add "
+                                    f"for tg_id={tg_id}; treating as already provisioned."
+                                )
+                                continue
+                            raise Exception(
+                                f"[{server_name}] API responded with error during fallback add: {fallback_data}"
+                            )
                         raise Exception(
                             f"[{server_name}] API responded with error: {response_data}"
                         )
@@ -413,7 +449,16 @@ class ClientManager:
                 logger.info(f"[{server_name}] Sending GET to {url}")
                 response = await session.get(url, headers=self.headers)
                 if response.status_code == 200:
-                    return True
+                    try:
+                        response_data = response.json()
+                    except Exception:
+                        errors.append(
+                            f"[{server_name}] Failed to decode JSON response: {response.text}"
+                        )
+                        continue
+                    if response_data.get("success", False):
+                        return True
+                    continue
                 if response.status_code not in {404}:
                     errors.append(
                         f"[{server_name}] HTTP error: {response.status_code} - {response.text}"
@@ -454,6 +499,42 @@ class ClientManager:
                     )
 
         await self._process_on_all_servers(handler)
+
+    async def delete_scoped_client(
+        self,
+        *,
+        server_pool: dict[str, dict],
+        cache_namespace: str,
+        client_uuid: str,
+    ) -> None:
+        """Delete a client from the selected scoped server pool."""
+
+        async def handler(
+            session: httpx.AsyncClient,
+            inbound_url: str,
+            server_name: str,
+            inbound_ids: list[int],
+        ):
+            for inbound_id in inbound_ids:
+                try:
+                    url = inbound_url + f"{inbound_id}/delClient/{client_uuid}"
+                    logger.info(f"[{server_name}] Sending scoped POST to {url}")
+                    response = await session.post(url, headers=self.headers)
+                    response.raise_for_status()
+                except httpx.TimeoutException:
+                    raise Exception(f"[{server_name}] Timeout when contacting {url}")
+                except httpx.RequestError as e:
+                    raise Exception(f"[{server_name}] Request failed: {str(e)}")
+                except httpx.HTTPStatusError as e:
+                    raise Exception(
+                        f"[{server_name}] HTTP error: {e.response.status_code} - {e.response.text}"
+                    )
+
+        await self._process_on_server_pool(
+            handler,
+            server_pool=server_pool,
+            cache_namespace=cache_namespace,
+        )
     async def update_client(
         self,
         tg_id: int,
@@ -552,21 +633,31 @@ class ClientManager:
         await self._sync_v2_topology(current_user)
 
     async def _sync_v2_topology(self, user: TelegramUserSnapshot) -> None:
-        if self.topology_sync_service is None:
+        if self.topology_service is None:
             return
         try:
-            await self.topology_sync_service.sync_legacy_user_deployments(user)
+            vpn_client_id = await self.repo.get_standard_vpn_client_id(int(user.tg_id))
+            if vpn_client_id is None:
+                logger.warning(
+                    "Skipped topology sync because standard vpn_client was not found "
+                    f"for tg_id={getattr(user, 'tg_id', None)}"
+                )
+                return
+            await self.topology_service.sync_vpn_client_deployments(
+                int(vpn_client_id),
+                scope=PRODUCT_SCOPE_STANDARD,
+            )
         except Exception as err:
             logger.error(
-                "Phase 4 dual write failed in client manager "
+                "Topology sync failed in client manager "
                 f"for tg_id={getattr(user, 'tg_id', None)}: {err!r}"
             )
 
     async def sync_v2_scoped_topology(self, *, vpn_client_id: int, scope: str) -> None:
-        if self.topology_sync_service is None:
+        if self.topology_service is None:
             return
         try:
-            await self.topology_sync_service.sync_vpn_client_deployments(
+            await self.topology_service.sync_vpn_client_deployments(
                 int(vpn_client_id),
                 scope=str(scope),
             )

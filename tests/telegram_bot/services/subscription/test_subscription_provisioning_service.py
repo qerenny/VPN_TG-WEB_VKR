@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,7 +13,6 @@ from shared.models.users.app_user_model import AppUser
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.infrastructure.users.telegram_user_repository import TelegramUserSnapshot
-from shared.migration_support.models.users.user_model import User
 from telegram_bot.services.subscriptions.subscription_provisioning_service import (
     SubscriptionProvisioningService,
 )
@@ -57,22 +57,24 @@ def service_and_mocks():
 
 @pytest.fixture
 def active_user():
-    return User(
+    return SimpleNamespace(
         tg_id=12345,
         uuid="test-uuid-123",
         email="user@example.com",
         expiration_date=1700000000,
+        info_channel_date=None,
         sub_id="sub-123",
     )
 
 
 @pytest.fixture
 def inactive_user():
-    return User(
+    return SimpleNamespace(
         tg_id=12345,
         uuid="test-uuid-123",
         email="user@example.com",
         expiration_date=None,
+        info_channel_date=None,
         sub_id="sub-123",
     )
 
@@ -169,12 +171,12 @@ async def test_get_subscription_link_normalizes_base_url(
 
 
 @pytest.mark.asyncio
-async def test_get_subscription_link_returns_whitelist_link(
+async def test_get_subscription_link_returns_traffic_limited_link(
     service_and_mocks,
     session_factory,
 ):
     service, repo, client, jwt_encoder, uuidgen = service_and_mocks
-    jwt_encoder.encode.return_value = "whitelist-jwt"
+    jwt_encoder.encode.return_value = "traffic_limited-jwt"
 
     @asynccontextmanager
     async def test_get_db_session():
@@ -202,7 +204,7 @@ async def test_get_subscription_link_returns_whitelist_link(
         session.add(
             VpnClient(
                 user_id=int(app_user.id),
-                scope="whitelist",
+                scope="traffic_limited",
                 provider="3x-ui",
                 external_client_uuid="wl-uuid-1",
                 external_email="wl-user@example.com",
@@ -219,18 +221,18 @@ async def test_get_subscription_link_returns_whitelist_link(
         patch.object(provisioning_module, "get_db_session", test_get_db_session),
         patch.object(
             provisioning_module,
-            "FRONTEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK",
-            "https://frontend.example.com/subscription/whitelist",
+            "FRONTEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK",
+            "https://frontend.example.com/subscription/traffic-limited",
         ),
     ):
-        result = await service.get_subscription_link(tg_id=12345, scope="whitelist")
+        result = await service.get_subscription_link(tg_id=12345, scope="traffic_limited")
 
-    assert result == "https://frontend.example.com/subscription/whitelist/whitelist-jwt"
+    assert result == "https://frontend.example.com/subscription/traffic-limited/traffic_limited-jwt"
     jwt_encoder.encode.assert_called_once_with(
         {
             "tg_id": 12345,
             "email": "wl-user@example.com",
-            "scope": "whitelist",
+            "scope": "traffic_limited",
         }
     )
 
@@ -277,7 +279,7 @@ async def test_create_or_update_user_repairs_empty_standard_identifiers_before_a
         sub_id="",
         login_date=1700000000,
         trial_date=None,
-        news_channel_date=None,
+        info_channel_date=None,
         username="alice",
     )
     repo.get.return_value = stale_user
@@ -299,7 +301,10 @@ async def test_delete_user_skips_panel_delete_when_client_is_absent(service_and_
     repo.get.return_value = active_user
     client.client_exists.return_value = False
 
-    with patch.object(service, "_delete_from_datastores", new=AsyncMock()) as delete_mock:
+    with (
+        patch.object(service, "_delete_from_datastores", new=AsyncMock()) as delete_mock,
+        patch.object(service, "_list_active_panel_clients", new=AsyncMock(return_value=[("standard", "test-uuid-123")])),
+    ):
         assert await service.delete_user(12345) is True
 
     client.delete_client.assert_not_awaited()
@@ -312,8 +317,43 @@ async def test_delete_user_removes_panel_client_before_datastore_cleanup(service
     repo.get.return_value = active_user
     client.client_exists.return_value = True
 
-    with patch.object(service, "_delete_from_datastores", new=AsyncMock()) as delete_mock:
+    with (
+        patch.object(service, "_delete_from_datastores", new=AsyncMock()) as delete_mock,
+        patch.object(service, "_list_active_panel_clients", new=AsyncMock(return_value=[("standard", "test-uuid-123")])),
+    ):
         assert await service.delete_user(12345) is True
 
     client.delete_client.assert_awaited_once_with("test-uuid-123")
+    delete_mock.assert_awaited_once_with(12345)
+
+
+@pytest.mark.asyncio
+async def test_delete_user_removes_traffic_limited_panel_client_before_datastore_cleanup(
+    service_and_mocks,
+    active_user,
+):
+    service, repo, client, jwt_encoder, uuidgen = service_and_mocks
+    repo.get.return_value = active_user
+
+    with (
+        patch.object(service, "_delete_from_datastores", new=AsyncMock()) as delete_mock,
+        patch.object(
+            service,
+            "_list_active_panel_clients",
+            new=AsyncMock(
+                return_value=[
+                    ("standard", "test-uuid-123"),
+                    ("traffic_limited", "traffic-uuid-456"),
+                ]
+            ),
+        ),
+    ):
+        client.client_exists.return_value = True
+        assert await service.delete_user(12345) is True
+
+    client.delete_client.assert_awaited_once_with("test-uuid-123")
+    client.delete_scoped_client.assert_awaited_once()
+    _, kwargs = client.delete_scoped_client.await_args
+    assert kwargs["cache_namespace"] == "traffic_limited"
+    assert kwargs["client_uuid"] == "traffic-uuid-456"
     delete_mock.assert_awaited_once_with(12345)

@@ -18,7 +18,12 @@ const publicConfig = ref<FrontendPublicConfig>(createEmptyPublicConfig())
 const loading = ref(true)
 const features = computed<FrontendFeatureFlags>(() => publicConfig.value.features || DEFAULT_FEATURE_FLAGS)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
-const subscriptionClientName = computed(() => 'Happ')
+const accessRequestsEnabled = computed(() => features.value.access_requests_enabled)
+const registryManagedAccess = computed(() => Boolean(subscriptions.value?.access_policy?.registry_managed))
+const accessActionLabel = computed(() => (webPurchaseEnabled.value ? 'Получить доступ' : 'Запросить доступ'))
+const subscriptionClientName = computed(() => publicConfig.value.subscription_client?.name || 'Happ')
+const standardConfigEnabled = computed(() => features.value.standard_config_enabled)
+const trafficLimitedConfigEnabled = computed(() => features.value.traffic_limited_config_enabled)
 
 function buildHappImportLink(importUrl?: string | null) {
   const addLink = publicConfig.value?.subscription_add_links?.happ?.trim() || ''
@@ -60,28 +65,32 @@ const cards = computed(() => {
       metrics: [],
     },
     {
-      key: 'whitelist',
+      key: 'traffic_limited',
       title: 'Конфигурация с лимитом трафика',
       icon: 'shield',
       accentClass: 'scope-card--blue',
       buttonClass: 'cabinet-btn--primary',
-      active: subscriptions.value.whitelist.is_active,
+      active: subscriptions.value.traffic_limited.is_active,
       primaryLabel: 'Остаток трафика',
-      primaryValue: subscriptions.value.whitelist.human_view_traffic_remaining || 'Нет активного пакета',
+      primaryValue: subscriptions.value.traffic_limited.human_view_traffic_remaining || 'Нет активного пакета',
       secondaryLabel: 'Действует до',
-      secondaryValue: formatDateTime(subscriptions.value.whitelist.expires_at),
-      importUrl: subscriptions.value.whitelist.subscription_import_url,
+      secondaryValue: formatDateTime(subscriptions.value.traffic_limited.expires_at),
+      importUrl: subscriptions.value.traffic_limited.subscription_import_url,
       note: 'Отдельный контур с учётом трафика и срока действия.',
       metrics: [
-        { label: 'Использовано', value: subscriptions.value.whitelist.human_view_traffic_used || '0 B' },
-        { label: 'Выдано', value: subscriptions.value.whitelist.human_view_traffic_allocated || '0 B' },
+        { label: 'Использовано', value: subscriptions.value.traffic_limited.human_view_traffic_used || '0 B' },
+        { label: 'Выдано', value: subscriptions.value.traffic_limited.human_view_traffic_allocated || '0 B' },
       ],
     },
   ]
-  return features.value.traffic_limited_config_enabled
-    ? items
-    : items.filter((item) => item.key !== 'whitelist')
+  return items.filter((item) => {
+    if (item.key === 'standard') return standardConfigEnabled.value
+    if (item.key === 'traffic_limited') return trafficLimitedConfigEnabled.value
+    return true
+  })
 })
+
+const hasVisibleCards = computed(() => cards.value.length > 0)
 
 onMounted(async () => {
   loading.value = true
@@ -101,15 +110,21 @@ onMounted(async () => {
 <template>
   <section class="cabinet-section">
     <div class="cabinet-section__head">
-      <p class="cabinet-kicker">Мои подписки</p>
+      <p class="cabinet-kicker">Мой доступ</p>
       <h2 class="cabinet-title">Текущий доступ</h2>
     </div>
 
     <!-- Loading -->
     <div v-if="loading" class="cabinet-loader">
       <img src="/favicon.svg" alt="" class="cabinet-loader__img" />
-      <p class="cabinet-loader__text">Загружаем подписки...</p>
+      <p class="cabinet-loader__text">Загружаем доступ...</p>
     </div>
+
+    <article v-else-if="!hasVisibleCards" class="glass-card cabinet-panel cabinet-empty">
+      <span class="material-symbols-outlined" style="font-size: 44px; opacity: 0.3;">inventory_2</span>
+      <p class="cabinet-subtitle" style="font-size: 17px;">Модули конфигураций отключены</p>
+      <p class="cabinet-note">В этой сборке выдача конфигураций через веб-панель сейчас недоступна.</p>
+    </article>
 
     <div v-else class="cabinet-grid cabinet-grid--2">
       <article v-for="card in cards" :key="card.key" class="glass-card cabinet-panel scope-card" :class="card.accentClass">
@@ -181,16 +196,24 @@ onMounted(async () => {
               <span class="scope-empty__dot scope-empty__dot--2"></span>
               <span class="scope-empty__dot scope-empty__dot--3"></span>
             </div>
-            <p class="scope-empty__text">Подписка пока не активна</p>
+            <p class="scope-empty__text">Доступ пока не активирован</p>
             <p class="scope-empty__hint">{{ card.note }}</p>
           </div>
 
           <div class="scope-card__actions">
-            <RouterLink v-if="webPurchaseEnabled" class="cabinet-btn" :class="card.buttonClass" to="/app/purchase">
-              <span class="material-symbols-outlined">shopping_cart</span>
-              Получить доступ
+            <RouterLink
+              v-if="!registryManagedAccess && (webPurchaseEnabled || accessRequestsEnabled)"
+              class="cabinet-btn"
+              :class="card.buttonClass"
+              to="/app/purchase"
+            >
+              <span class="material-symbols-outlined">vpn_key</span>
+              {{ accessActionLabel }}
             </RouterLink>
           </div>
+          <p v-if="registryManagedAccess" class="scope-card__hint">
+            Для этого аккаунта доступ обслуживается через реестр и продлевается автоматически.
+          </p>
         </template>
       </article>
     </div>
@@ -250,8 +273,8 @@ onMounted(async () => {
   background: linear-gradient(135deg, rgba(245, 160, 78, 0.18), rgba(255, 120, 60, 0.08));
 }
 
-.scope-card__icon-wrap--whitelist {
-  color: var(--cabinet-whitelist);
+.scope-card__icon-wrap--traffic_limited {
+  color: var(--cabinet-traffic_limited);
   background: linear-gradient(135deg, rgba(77, 143, 214, 0.18), rgba(100, 180, 255, 0.08));
 }
 
@@ -343,7 +366,7 @@ onMounted(async () => {
 }
 
 .scope-card__hint-link {
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   text-decoration: none;
   font-weight: 600;
 }
@@ -362,7 +385,7 @@ onMounted(async () => {
 
 .subs-help__icon {
   font-size: 28px;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   flex-shrink: 0;
 }
 
@@ -428,7 +451,7 @@ onMounted(async () => {
 }
 
 .scope-card--blue .scope-empty__icon {
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   opacity: 0.35;
 }
 
@@ -450,7 +473,7 @@ onMounted(async () => {
 .scope-empty__dot--2 {
   bottom: 10px;
   left: 8px;
-  background: var(--cabinet-whitelist);
+  background: var(--cabinet-traffic_limited);
   animation: empty-dot 3s ease-in-out 1s infinite;
 }
 

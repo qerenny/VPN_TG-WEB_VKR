@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import sqlalchemy as sa
 from sqlmodel import select
 
-from shared.config.settings import RolloutFeatureFlags
 from shared.infrastructure.base_repository import BaseRepository
 from shared.models.growth.promo_code_model import PromoCode as PromoCodeV2
 from shared.models.growth.promo_redemption_model import PromoRedemption
@@ -23,9 +22,8 @@ class PromoCodeSnapshot:
 
 
 class PromoCodeRepository(BaseRepository[PromoCodeSnapshot]):
-    def __init__(self, features: RolloutFeatureFlags | None = None):
+    def __init__(self):
         super().__init__(PromoCodeSnapshot)
-        self.features = features or RolloutFeatureFlags()
 
     @log_function_call(logger)
     async def get_by_code(self, code: str) -> PromoCodeSnapshot | None:
@@ -36,10 +34,6 @@ class PromoCodeRepository(BaseRepository[PromoCodeSnapshot]):
     async def get_remaining(self, code: str) -> int | None:
         promo = await self.get_by_code(code)
         return promo.remaining_uses if promo else None
-
-    @log_function_call(logger)
-    async def decrement(self, code: str) -> None:
-        return None
 
     async def _get_v2_promo_by_code(self, session, code: str) -> PromoCodeSnapshot | None:
         promo_v2 = (
@@ -66,8 +60,8 @@ class PromoCodeRepository(BaseRepository[PromoCodeSnapshot]):
         metadata = dict(promo_v2.metadata_json or {})
         legacy_duration = (
             str(metadata.get("legacy_duration") or "").strip()
-            or str(getattr(plan, "legacy_payload", "") or "").strip()
-            or str(plan_metadata.get("legacy_payload") or "").strip()
+            or str(getattr(plan, "payload", "") or "").strip()
+            or str(plan_metadata.get("plan_payload") or "").strip()
         )
         if not legacy_duration:
             legacy_duration = f"day{int(promo_v2.duration_days_override or 0)}"

@@ -11,6 +11,70 @@ export interface AdminActionPayload {
   params?: Record<string, unknown>
 }
 
+export interface AdminFeatureFlags {
+  access_requests_enabled: boolean
+  access_registry_enabled: boolean
+  access_admin_override_enabled: boolean
+  commerce_enabled: boolean
+  referrals_enabled: boolean
+  promos_enabled: boolean
+  web_purchase_enabled: boolean
+  telegram_bot_enabled: boolean
+  mail_enabled: boolean
+  standard_config_enabled: boolean
+  traffic_limited_config_enabled: boolean
+}
+
+export interface AdminOverview {
+  actor?: string
+  role?: string
+  stats?: Record<string, number>
+  queues?: Record<string, unknown>
+  cache?: Record<string, unknown>
+  features?: Partial<AdminFeatureFlags>
+  sources?: Record<string, string>
+}
+
+export interface AdminAccessRequestItem {
+  id: number
+  user_id: number
+  requested_template_code: string | null
+  requested_template_label?: string | null
+  approved_template_label?: string | null
+  access_grant_id: number | null
+  channel: string
+  request_kind: string
+  status: string
+  comment: string | null
+  review_note: string | null
+  reviewed_by_actor: string | null
+  requested_at: string
+  reviewed_at: string | null
+  expires_at: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface AdminAccessRegistryItem {
+  id: number
+  identity_type: string
+  identity_value: string
+  template_code: string
+  template_label?: string
+  auto_approve: boolean
+  allow_auto_renew: boolean
+  is_active: boolean
+  note: string | null
+  created_by_actor: string | null
+  updated_by_actor: string | null
+  created_at: string
+  updated_at: string
+  matched_users_count: number
+  issued_users_count: number
+  access_issued: boolean
+  issuance_status_label: string
+  metadata: Record<string, unknown>
+}
+
 const adminApi = axios.create({
   baseURL: `${API_BASE_URL}/admin`,
   withCredentials: true,
@@ -30,7 +94,7 @@ export async function logoutAdmin() {
 
 export async function fetchAdminOverview() {
   const response = await adminApi.get('/overview')
-  return response.data
+  return response.data as AdminOverview
 }
 
 export async function searchAdminUsers(query?: string) {
@@ -59,6 +123,92 @@ export async function fetchAdminAudit(targetTgId?: number) {
 export async function runAdminAction(payload: AdminActionPayload) {
   const response = await adminApi.post('/actions', payload)
   return response.data
+}
+
+export async function fetchAdminAccessRequests(status?: string, limit = 100) {
+  const response = await adminApi.get('/access-requests', {
+    params: {
+      status: status || undefined,
+      limit,
+    },
+  })
+  return response.data.items as AdminAccessRequestItem[]
+}
+
+export async function reviewAdminAccessRequest(
+  requestId: number,
+  payload: { decision: 'approve' | 'reject'; review_note?: string | null; template_code?: string | null },
+) {
+  const response = await adminApi.post(`/access-requests/${requestId}/review`, payload)
+  return response.data as AdminAccessRequestItem
+}
+
+export async function fetchAdminAccessRegistry(limit = 200) {
+  const response = await adminApi.get('/access-registry', {
+    params: { limit },
+  })
+  return response.data.items as AdminAccessRegistryItem[]
+}
+
+export async function upsertAdminAccessRegistry(payload: {
+  identity_type: string
+  identity_value: string
+  auto_approve?: boolean
+  allow_auto_renew?: boolean
+  is_active?: boolean
+  note?: string | null
+}) {
+  const response = await adminApi.post('/access-registry', payload)
+  return response.data as AdminAccessRegistryItem
+}
+
+export async function updateAdminAccessRegistry(entryId: number, payload: {
+  identity_type: string
+  identity_value: string
+  auto_approve?: boolean
+  allow_auto_renew?: boolean
+  is_active?: boolean
+  note?: string | null
+}) {
+  const response = await adminApi.patch(`/access-registry/${entryId}`, payload)
+  return response.data as AdminAccessRegistryItem
+}
+
+export async function toggleAdminAccessRegistry(entryId: number, is_active: boolean, entry?: Partial<AdminAccessRegistryItem>) {
+  return updateAdminAccessRegistry(entryId, {
+    identity_type: String(entry?.identity_type || ''),
+    identity_value: String(entry?.identity_value || ''),
+    auto_approve: Boolean(entry?.auto_approve),
+    allow_auto_renew: Boolean(entry?.allow_auto_renew),
+    is_active,
+    note: entry?.note || undefined,
+  })
+}
+
+export async function batchUpsertAdminAccessRegistry(payload: {
+  identities_text: string
+  auto_approve?: boolean
+  allow_auto_renew?: boolean
+  is_active?: boolean
+  note?: string | null
+}) {
+  const response = await adminApi.post('/access-registry/batch', payload)
+  return response.data.items as AdminAccessRegistryItem[]
+}
+
+export async function disableAndRevokeAdminAccessRegistry(entryId: number) {
+  const response = await adminApi.post(`/access-registry/${entryId}/disable-and-revoke`)
+  return response.data as {
+    entry: AdminAccessRegistryItem
+    matched_users: number
+    revoked_grants: number
+    runtime_revocations: number
+  }
+}
+
+export async function deleteAdminAccessRegistry(entryId: number) {
+  const response = await adminApi.delete(`/access-registry/${entryId}`)
+  return response.data as { status: string }
 }
 
 export interface AdminPromoCode {

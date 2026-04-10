@@ -13,7 +13,7 @@ from sqlalchemy.orm import aliased
 from backend.admin.types import AdminPrincipal
 from shared.config.config import (
     BACKEND_TELEGRAM_SUBSCRIPTION_LINK,
-    BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK,
+    BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK,
     BOT_SUPPORT_TG_LINK,
     PRODUCT_REDIS_PREFIX,
     REDIS_PAYMENT_DEDUPE_PREFIX,
@@ -22,7 +22,11 @@ from shared.config.config import (
     REDIS_PAYMENT_RETRY_QUEUE_KEY,
 )
 from shared.config.database.session import get_db_session
-from shared.config.settings import BackendSettings, RolloutFeatureFlags
+from shared.config.settings import (
+    BackendSettings,
+    RuntimeSyncFlags,
+    get_effective_product_feature_settings,
+)
 from shared.constants.payments import (
     ORDER_STATUS_FULFILLED,
     ORDER_STATUS_PAID,
@@ -35,7 +39,9 @@ from shared.infrastructure.payments.payment_repository import (
     PaymentRepository,
     PaymentSnapshot,
 )
-from shared.infrastructure.growth_sync_service import GrowthSyncService
+from shared.infrastructure.access.access_grant_repository import AccessGrantRepository
+from shared.infrastructure.access.access_registry_repository import AccessRegistryRepository
+from shared.infrastructure.growth_service import GrowthService
 from shared.infrastructure.promos.promo_code_repository import (
     PromoCodeRepository,
 )
@@ -52,8 +58,10 @@ from shared.models.growth.promo_code_model import PromoCode as PromoCodeV2
 from shared.models.growth.promo_redemption_model import PromoRedemption
 from shared.models.growth.referral_edge_model import ReferralEdge
 from shared.models.growth.referral_reward_model import ReferralReward
+from shared.models.access.access_grant_model import AccessGrant
 from shared.models.payments.payment_attempt_model import PaymentAttempt
 from shared.models.payments.payment_order_model import PaymentOrder
+from shared.models.payments.plan_model import Plan
 from shared.models.subscriptions.subscription_state_model import SubscriptionState
 from shared.models.traffic.traffic_state_model import TrafficState
 from shared.models.users.app_user_model import AppUser
@@ -61,7 +69,8 @@ from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.user_profile_model import UserProfile
 from shared.models.users.web_account_model import WebAccount
 from shared.models.vpn.vpn_client_model import VpnClient
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
+from shared.utils.access_template_labels import format_access_template_label
 from shared.utils.async_redis_client import AsyncRedisClient, RedisClientError
 from shared.utils.jwt_encoder import JWTEncoder
 from shared.utils.logging_utils import logger, send_telegram_alert
@@ -73,14 +82,17 @@ from telegram_bot.services.subscriptions.subscription_flow_service import Subscr
 from telegram_bot.services.subscriptions.subscription_provisioning_service import (
     SubscriptionProvisioningService,
 )
-from telegram_bot.services.subscriptions.whitelist_provisioning_service import (
-    WhiteListProvisioningService,
+from telegram_bot.services.subscriptions.standard_user_subscription_service import (
+    StandardUserSubscriptionService,
 )
-from telegram_bot.services.subscriptions.whitelist_traffic_service import (
-    WhiteListTrafficService,
+from telegram_bot.services.subscriptions.traffic_limited_provisioning_service import (
+    TrafficLimitedProvisioningService,
 )
-from telegram_bot.services.subscriptions.whitelist_traffic_sync_service import (
-    WhiteListTrafficSyncService,
+from telegram_bot.services.subscriptions.traffic_limited_service import (
+    TrafficLimitedService,
+)
+from telegram_bot.services.subscriptions.traffic_limited_sync_service import (
+    TrafficLimitedSyncService,
 )
 from telegram_bot.services.users.user_subscription_info_service import UserSubscriptionInfoService
 from telegram_bot.shared.utils.json_builder import JSONBuilder
@@ -94,6 +106,39 @@ ALERTED_ADMIN_ACTIONS = {
     "retry_payment_dlq",
 }
 
+STANDARD_ADMIN_ACTIONS = {
+    "extend_subscription",
+    "grant_trial",
+    "rebuild_subscription_link",
+    "clear_cache",
+    "recreate_client",
+    "grant_compensation_days",
+}
+
+ADMIN_OVERRIDE_ADMIN_ACTIONS = {
+    "issue_access_override",
+    "revoke_access",
+}
+
+COMMERCE_ADMIN_ACTIONS = {
+    "extend_subscription",
+    "grant_compensation_days",
+    "retry_payment_dlq",
+}
+
+REFERRAL_ADMIN_ACTIONS = {
+    "grant_referral_bonus",
+}
+
+TRAFFIC_LIMITED_ADMIN_ACTIONS = {
+    "grant_traffic_limited_package",
+    "sync_traffic_limited",
+}
+
+TRIAL_ADMIN_ACTIONS = {
+    "grant_trial",
+}
+
 
 class AdminService:
     def __init__(
@@ -105,6 +150,7 @@ class AdminService:
         promo_code_repository: PromoCodeRepository,
         jwt_encoder: JWTEncoder,
         timestamp: TimestampUtils,
+        access_issuance_service=None,
     ):
         self.settings = settings
         self.user_repository = user_repository
@@ -113,6 +159,7 @@ class AdminService:
         self.promo_code_repository = promo_code_repository
         self.jwt_encoder = jwt_encoder
         self.timestamp = timestamp
+        self.access_issuance_service = access_issuance_service
         self.uuid_generator = UUIDGenerator()
 
         self.client_manager = ClientManager(
@@ -139,32 +186,37 @@ class AdminService:
             user_subscription_info_service=self.user_subscription_info_service,
             timestamp=timestamp,
         )
-        self.whitelist_provisioning_service = WhiteListProvisioningService(
+        self.traffic_limited_provisioning_service = TrafficLimitedProvisioningService(
             repo=user_repository,
             timestamp=timestamp,
             client_manager=self.client_manager,
             uuidgen=self.uuid_generator,
         )
-        self.whitelist_traffic_service = WhiteListTrafficService(
-            provisioning_service=self.whitelist_provisioning_service,
+        self.traffic_limited_service = TrafficLimitedService(
+            provisioning_service=self.traffic_limited_provisioning_service,
             timestamp=timestamp,
             client_manager=self.client_manager,
         )
-        self.whitelist_traffic_sync_service = WhiteListTrafficSyncService(
+        self.traffic_limited_sync_service = TrafficLimitedSyncService(
             client_manager=self.client_manager,
+        )
+        self.standard_user_subscription_service = StandardUserSubscriptionService(
+            client_manager=self.client_manager,
+            uuidgen=self.uuid_generator,
         )
         self.referral_bonus_service = ReferralBonusService(
             repo_referrals=referral_repository,
             repo_user=user_repository,
             timestamp=timestamp,
             client=self.client_manager,
-            sync_service=GrowthSyncService(
-                RolloutFeatureFlags(db_dual_write_growth=True)
+            growth_service=GrowthService(
+                RuntimeSyncFlags(growth_sync_enabled=True)
             ),
         )
 
     async def get_overview(self, redis_client: AsyncRedisClient | None) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
+        feature_flags = get_effective_product_feature_settings()
 
         async with get_db_session() as session:
             total_users = (
@@ -225,6 +277,19 @@ class AdminService:
                 "subscription_inflight": len(self._subscription_routes().subscription_inflight),
             },
             "features": {
+                "access_requests_enabled": feature_flags.access_requests_enabled,
+                "access_registry_enabled": feature_flags.access_registry_enabled,
+                "access_admin_override_enabled": feature_flags.access_admin_override_enabled,
+                "commerce_enabled": feature_flags.commerce_enabled,
+                "referrals_enabled": feature_flags.referrals_enabled,
+                "promos_enabled": feature_flags.promos_enabled,
+                "web_purchase_enabled": feature_flags.web_purchase_enabled,
+                "telegram_bot_enabled": feature_flags.telegram_bot_enabled,
+                "mail_enabled": feature_flags.mail_enabled,
+                "standard_config_enabled": feature_flags.standard_config_enabled,
+                "traffic_limited_config_enabled": feature_flags.traffic_limited_config_enabled,
+            },
+            "sources": {
                 "subscription_source": "current",
                 "payments_source": "current",
                 "growth_source": "current",
@@ -235,8 +300,8 @@ class AdminService:
     async def search_users(self, query: str | None, limit: int = 25) -> list[dict[str, Any]]:
         normalized_query = str(query or "").strip()
         standard_client = aliased(VpnClient)
-        whitelist_client = aliased(VpnClient)
-        whitelist_state = aliased(TrafficState)
+        traffic_limited_client = aliased(VpnClient)
+        traffic_limited_state = aliased(TrafficState)
 
         async with get_db_session() as session:
             stmt = (
@@ -251,10 +316,10 @@ class AdminService:
                     standard_client.external_client_uuid,
                     standard_client.subscription_external_id,
                     standard_client.external_email,
-                    whitelist_client.external_email,
-                    whitelist_state.remaining_bytes,
-                    whitelist_state.expires_at,
-                    whitelist_state.is_blocked,
+                    traffic_limited_client.external_email,
+                    traffic_limited_state.remaining_bytes,
+                    traffic_limited_state.expires_at,
+                    traffic_limited_state.is_blocked,
                 )
                 .select_from(AppUser)
                 .outerjoin(
@@ -275,14 +340,14 @@ class AdminService:
                     & (standard_client.scope == PRODUCT_SCOPE_STANDARD),
                 )
                 .outerjoin(
-                    whitelist_client,
-                    (whitelist_client.user_id == AppUser.id)
-                    & whitelist_client.deactivated_at.is_(None)
-                    & (whitelist_client.scope == PRODUCT_SCOPE_WHITELIST),
+                    traffic_limited_client,
+                    (traffic_limited_client.user_id == AppUser.id)
+                    & traffic_limited_client.deactivated_at.is_(None)
+                    & (traffic_limited_client.scope == PRODUCT_SCOPE_TRAFFIC_LIMITED),
                 )
                 .outerjoin(
-                    whitelist_state,
-                    whitelist_state.vpn_client_id == whitelist_client.id,
+                    traffic_limited_state,
+                    traffic_limited_state.vpn_client_id == traffic_limited_client.id,
                 )
                 .where(AppUser.deleted_at.is_(None))
                 .order_by(desc(AppUser.created_at))
@@ -296,7 +361,7 @@ class AdminService:
                     standard_client.external_email.ilike(f"%{normalized_query}%"),
                     standard_client.external_client_uuid.ilike(f"%{normalized_query}%"),
                     standard_client.subscription_external_id.ilike(f"%{normalized_query}%"),
-                    whitelist_client.external_email.ilike(f"%{normalized_query}%"),
+                    traffic_limited_client.external_email.ilike(f"%{normalized_query}%"),
                 ]
                 if normalized_query.isdigit():
                     filters.append(TelegramAccount.telegram_id == int(normalized_query))
@@ -318,10 +383,10 @@ class AdminService:
             standard_uuid,
             standard_sub_id,
             standard_email,
-            whitelist_email,
-            whitelist_remaining_bytes,
-            whitelist_expires_at,
-            whitelist_is_blocked,
+            traffic_limited_email,
+            traffic_limited_remaining_bytes,
+            traffic_limited_expires_at,
+            traffic_limited_is_blocked,
         ) in rows:
             items.append(
                 self._serialize_user_summary(
@@ -329,7 +394,7 @@ class AdminService:
                     email=(
                         str(web_email or "").strip()
                         or str(standard_email or "").strip()
-                        or str(whitelist_email or "").strip()
+                        or str(traffic_limited_email or "").strip()
                         or f"user-{int(user_id)}"
                     ),
                     username=username,
@@ -340,10 +405,10 @@ class AdminService:
                     expiration_date=standard_expires_at,
                     has_web_account=bool(web_email),
                     has_telegram=tg_id is not None,
-                    active_whitelist=self._is_whitelist_active_from_primitives(
-                        remaining_bytes=whitelist_remaining_bytes,
-                        expires_at=whitelist_expires_at,
-                        is_blocked=whitelist_is_blocked,
+                    active_traffic_limited=self._is_traffic_limited_active_from_primitives(
+                        remaining_bytes=traffic_limited_remaining_bytes,
+                        expires_at=traffic_limited_expires_at,
+                        is_blocked=traffic_limited_is_blocked,
                         now=now,
                     ),
                     blocked_at=blocked_at,
@@ -373,20 +438,20 @@ class AdminService:
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            whitelist_client = (
+            traffic_limited_client = (
                 await session.execute(
                     select(VpnClient)
                     .where(
                         VpnClient.user_id == normalized_user_id,
-                        VpnClient.scope == PRODUCT_SCOPE_WHITELIST,
+                        VpnClient.scope == PRODUCT_SCOPE_TRAFFIC_LIMITED,
                         VpnClient.deactivated_at.is_(None),
                     )
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            whitelist_state = (
-                await session.get(TrafficState, whitelist_client.id)
-                if whitelist_client is not None
+            traffic_limited_state = (
+                await session.get(TrafficState, traffic_limited_client.id)
+                if traffic_limited_client is not None
                 else None
             )
             payment_orders = (
@@ -414,6 +479,14 @@ class AdminService:
                     .limit(20)
                 )
             ).scalars().all()
+            access_grants = (
+                await session.execute(
+                    select(AccessGrant)
+                    .where(AccessGrant.user_id == normalized_user_id)
+                    .order_by(desc(AccessGrant.created_at), desc(AccessGrant.id))
+                    .limit(20)
+                )
+            ).scalars().all()
 
         tg_id = int(telegram_account.telegram_id) if telegram_account is not None else None
         referral = await self.referral_repository.get(int(tg_id)) if tg_id is not None else None
@@ -422,8 +495,8 @@ class AdminService:
             for order, attempt in payment_orders
         ]
         subscription_link = await self._safe_subscription_link(int(tg_id)) if tg_id is not None else ""
-        whitelist_subscription_link = (
-            await self._safe_subscription_link(int(tg_id), scope=PRODUCT_SCOPE_WHITELIST)
+        traffic_limited_subscription_link = (
+            await self._safe_subscription_link(int(tg_id), scope=PRODUCT_SCOPE_TRAFFIC_LIMITED)
             if tg_id is not None
             else ""
         )
@@ -433,7 +506,7 @@ class AdminService:
             str(getattr(user_profile, "preferred_contact_email", "") or "").strip()
             or str(getattr(web_account, "email", "") or "").strip()
             or str(getattr(standard_client, "external_email", "") or "").strip()
-            or str(getattr(whitelist_client, "external_email", "") or "").strip()
+            or str(getattr(traffic_limited_client, "external_email", "") or "").strip()
             or f"user-{normalized_user_id}"
         )
         standard_sub_id = getattr(standard_client, "subscription_external_id", None)
@@ -450,7 +523,7 @@ class AdminService:
                 expiration_date=getattr(subscription_state, "current_expires_at", None),
                 has_web_account=web_account is not None,
                 has_telegram=telegram_account is not None,
-                active_whitelist=self._is_whitelist_active(whitelist_state),
+                active_traffic_limited=self._is_traffic_limited_active(traffic_limited_state),
                 blocked_at=getattr(app_user, "blocked_at", None) or getattr(subscription_state, "blocked_at", None),
             ),
             "profile": {
@@ -468,7 +541,7 @@ class AdminService:
                 ),
                 "expiration_date": self._datetime_to_iso(getattr(subscription_state, "current_expires_at", None)),
                 "trial_date": self._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None)),
-                "news_channel_date": self._datetime_to_iso(getattr(subscription_state, "news_bonus_activated_at", None)),
+                "info_channel_date": self._datetime_to_iso(getattr(subscription_state, "info_channel_activated_at", None)),
                 "subscription_link": subscription_link,
                 "raw_build_link": (
                     f"{BACKEND_TELEGRAM_SUBSCRIPTION_LINK}?uuid={standard_sub_id}"
@@ -476,10 +549,10 @@ class AdminService:
                     else ""
                 ),
                 "support_link": BOT_SUPPORT_TG_LINK,
-                "whitelist": self._serialize_whitelist_profile(
-                    whitelist_client=whitelist_client,
-                    whitelist_state=whitelist_state,
-                    whitelist_subscription_link=whitelist_subscription_link,
+                "traffic_limited": self._serialize_traffic_limited_profile(
+                    traffic_limited_client=traffic_limited_client,
+                    traffic_limited_state=traffic_limited_state,
+                    traffic_limited_subscription_link=traffic_limited_subscription_link,
                 ),
             },
             "telegram_account": self._serialize_telegram_account(telegram_account),
@@ -519,6 +592,9 @@ class AdminService:
                     for redemption, code in promo_redemptions
                 ],
             },
+            "access": {
+                "grants": [self._serialize_access_grant(row) for row in access_grants],
+            },
             "diagnostics": diagnostics,
             "playbooks": playbooks,
         }
@@ -547,20 +623,20 @@ class AdminService:
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            whitelist_client = (
+            traffic_limited_client = (
                 await session.execute(
                     select(VpnClient)
                     .where(
                         VpnClient.user_id == normalized_user_id,
-                        VpnClient.scope == PRODUCT_SCOPE_WHITELIST,
+                        VpnClient.scope == PRODUCT_SCOPE_TRAFFIC_LIMITED,
                         VpnClient.deactivated_at.is_(None),
                     )
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            whitelist_state = (
-                await session.get(TrafficState, whitelist_client.id)
-                if whitelist_client is not None
+            traffic_limited_state = (
+                await session.get(TrafficState, traffic_limited_client.id)
+                if traffic_limited_client is not None
                 else None
             )
             payment_orders = (
@@ -623,21 +699,21 @@ class AdminService:
                 redis_cache["error"] = str(err)
 
         parity = {
-            "legacy_expiration_date": self._datetime_to_iso(getattr(subscription_state, "current_expires_at", None)),
-            "v2_expiration_date": self._datetime_to_iso(getattr(subscription_state, "current_expires_at", None)),
-            "legacy_trial_date": self._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None)),
-            "v2_trial_date": self._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None)),
-            "legacy_news_channel_date": self._datetime_to_iso(getattr(subscription_state, "news_bonus_activated_at", None)),
-            "v2_news_channel_date": self._datetime_to_iso(getattr(subscription_state, "news_bonus_activated_at", None)),
+            "profile_expiration_date": self._datetime_to_iso(getattr(subscription_state, "current_expires_at", None)),
+            "current_expiration_date": self._datetime_to_iso(getattr(subscription_state, "current_expires_at", None)),
+            "profile_trial_date": self._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None)),
+            "current_trial_date": self._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None)),
+            "profile_info_channel_date": self._datetime_to_iso(getattr(subscription_state, "info_channel_activated_at", None)),
+            "current_info_channel_date": self._datetime_to_iso(getattr(subscription_state, "info_channel_activated_at", None)),
             "blocked_at": self._datetime_to_iso(
                 getattr(subscription_state, "blocked_at", None) or getattr(app_user, "blocked_at", None)
             ),
         }
         parity["has_mismatch"] = any(
             [
-                parity["legacy_expiration_date"] != parity["v2_expiration_date"],
-                bool(parity["legacy_trial_date"]) != bool(parity["v2_trial_date"]),
-                bool(parity["legacy_news_channel_date"]) != bool(parity["v2_news_channel_date"]),
+                parity["profile_expiration_date"] != parity["current_expiration_date"],
+                bool(parity["profile_trial_date"]) != bool(parity["current_trial_date"]),
+                bool(parity["profile_info_channel_date"]) != bool(parity["current_info_channel_date"]),
             ]
         )
 
@@ -663,9 +739,9 @@ class AdminService:
                 "build_cache_key": standard_sub_id or None,
             },
             "client": client_status,
-            "whitelist": self._serialize_whitelist_diagnostics(
-                whitelist_client=whitelist_client,
-                whitelist_state=whitelist_state,
+            "traffic_limited": self._serialize_traffic_limited_diagnostics(
+                traffic_limited_client=traffic_limited_client,
+                traffic_limited_state=traffic_limited_state,
             ),
             "cache": {
                 "local": {
@@ -690,7 +766,7 @@ class AdminService:
             "timeline": [
                 {"label": "registered", "value": self._datetime_to_iso(getattr(app_user, "created_at", None))},
                 {"label": "trial", "value": self._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None))},
-                {"label": "news_bonus", "value": self._datetime_to_iso(getattr(subscription_state, "news_bonus_activated_at", None))},
+                {"label": "info_channel", "value": self._datetime_to_iso(getattr(subscription_state, "info_channel_activated_at", None))},
                 {"label": "expires", "value": self._datetime_to_iso(getattr(subscription_state, "current_expires_at", None))},
                 {
                     "label": "blocked",
@@ -755,7 +831,7 @@ class AdminService:
                     "title": "Данные профиля и subscription state расходятся",
                     "summary": "Часть полей пользовательского профиля и subscription state не совпадает.",
                     "checks": [
-                        "Сравнить expiration/trial/news bonus между profile и subscription state.",
+                        "Сравнить expiration/trial/info channel между profile и subscription state.",
                         "Проверить, не остался ли пользователь заблокирован в текущем состоянии.",
                     ],
                     "suggested_actions": ["clear_cache", "rebuild_subscription_link"],
@@ -777,7 +853,7 @@ class AdminService:
                 }
             )
 
-        if info["parity"]["legacy_trial_date"]:
+        if info["parity"]["profile_trial_date"]:
             playbooks.append(
                 {
                     "id": "trial_edge_case",
@@ -794,13 +870,13 @@ class AdminService:
 
         playbooks.append(
             {
-                "id": "telegram_proxy_help",
+                "id": "telegram_access_fallback",
                 "severity": "low",
                 "title": "Проблема входа в Telegram",
-                "summary": "Если пользователь не может открыть бота, можно быстро перевести его на proxy flow.",
+                "summary": "Если пользователь не может открыть бота, можно быстро перевести его на веб-кабинет и прямую ссылку подписки.",
                 "checks": [
                     "Уточнить, открывается ли Telegram без VPN.",
-                    "Отправить proxy-flow и проверить, может ли пользователь снова зайти в бота.",
+                    "Отправить ссылку на веб-кабинет и проверить, может ли пользователь получить конфигурацию через него.",
                 ],
                 "suggested_actions": ["rebuild_subscription_link"],
             }
@@ -855,10 +931,12 @@ class AdminService:
         alert_error: Exception | None = None
         try:
             result = await self._execute_action_inner(
+                principal=principal,
                 action=action,
                 target_user_id=target_user_id,
                 target_tg_id=target_tg_id,
                 dry_run=dry_run,
+                reason=reason,
                 params=metadata,
                 redis_client=redis_client,
             )
@@ -914,13 +992,17 @@ class AdminService:
     async def _execute_action_inner(
         self,
         *,
+        principal: AdminPrincipal,
         action: str,
         target_user_id: int | None,
         target_tg_id: int | None,
         dry_run: bool,
+        reason: str | None,
         params: dict[str, Any],
         redis_client: AsyncRedisClient | None,
     ) -> dict[str, Any]:
+        self._ensure_action_enabled(action)
+
         if action == "extend_subscription":
             tg_id = await self._require_telegram_target(target_user_id, target_tg_id)
             period = str(params.get("period") or "").strip()
@@ -1036,6 +1118,81 @@ class AdminService:
                 await self.subscription_provisioning_service.create_or_update_user(tg_id, f"day{days}", user=user)
             return {"summary": f"Compensation of {days} days granted."}
 
+        if action == "issue_access_override":
+            user_id = await self._require_user_target(target_user_id, target_tg_id)
+            template_code = str(params.get("template_code") or "").strip().lower()
+            if not template_code:
+                raise HTTPException(status_code=400, detail="template_code is required")
+            plan = await self._load_active_plan(template_code)
+            self._ensure_plan_scope_enabled(str(plan.scope))
+            replace_existing = bool(params.get("replace_existing", False))
+            duration_days_override = (
+                int(params.get("duration_days_override"))
+                if params.get("duration_days_override") not in {None, "", 0, "0"}
+                else None
+            )
+            quota_bytes_override = self._parse_optional_quota_bytes(params)
+            source_ref = f"admin_override:{user_id}:{template_code}:{self.timestamp.current_timestamp()}"
+            if dry_run:
+                return {
+                    "summary": f"Will issue access override {template_code} to user {user_id}.",
+                    "template_code": template_code,
+                    "scope": str(plan.scope),
+                    "replace_existing": replace_existing,
+                    "duration_days_override": duration_days_override,
+                    "quota_bytes_override": quota_bytes_override,
+                }
+            if self.access_issuance_service is None:
+                raise HTTPException(status_code=503, detail="Access issuance service is unavailable")
+            if replace_existing:
+                await self._revoke_runtime_access(
+                    user_id=user_id,
+                    scope=str(plan.scope),
+                    actor=principal.actor,
+                    reason=reason,
+                )
+            result = await self.access_issuance_service.activate_from_payload(
+                payload=str(plan.payload),
+                source_type="admin_override",
+                source_ref=source_ref,
+                user_id=user_id,
+                channel_override="admin",
+                duration_days_override=duration_days_override,
+                quota_bytes_override=quota_bytes_override,
+                replace_existing=replace_existing,
+                extra_metadata={
+                    "admin_actor": principal.actor,
+                    "reason": (str(reason).strip() or None) if reason is not None else None,
+                    "template_code": template_code,
+                    "replace_existing": replace_existing,
+                    "duration_days_override": duration_days_override,
+                    "quota_bytes_override": quota_bytes_override,
+                },
+            )
+            return {
+                "summary": result.activation_text,
+                "details": result.activation_details_text,
+                "template_code": template_code,
+                "scope": str(plan.scope),
+            }
+
+        if action == "revoke_access":
+            user_id = await self._require_user_target(target_user_id, target_tg_id)
+            scope = str(params.get("scope") or "").strip().lower() or PRODUCT_SCOPE_STANDARD
+            self._ensure_plan_scope_enabled(scope)
+            if dry_run:
+                return {"summary": f"Will revoke {scope} access for user {user_id}."}
+            revoked = await self._revoke_runtime_access(
+                user_id=user_id,
+                scope=scope,
+                actor=principal.actor,
+                reason=reason,
+            )
+            return {
+                "summary": "Access revoked." if revoked else "No active access found to revoke.",
+                "scope": scope,
+            }
+
         if action == "unlink_problem_entity":
             user_id = await self._require_user_target(target_user_id, target_tg_id)
             entity_type = str(params.get("entity_type") or "").strip().lower()
@@ -1046,14 +1203,14 @@ class AdminService:
             await self._unlink_problem_entity(user_id, entity_type)
             return {"summary": f"Entity '{entity_type}' unlinked."}
 
-        if action == "grant_whitelist_package":
+        if action == "grant_traffic_limited_package":
             user_id = await self._require_user_target(target_user_id, target_tg_id)
             plan_code = str(params.get("plan_code") or "").strip()
             if not plan_code:
                 raise HTTPException(status_code=400, detail="plan_code is required")
             if dry_run:
                 return {"summary": f"Will grant traffic-limited package {plan_code} to user {user_id}."}
-            result = await self.whitelist_traffic_service.grant_admin_package_for_user(
+            result = await self.traffic_limited_service.grant_admin_package_for_user(
                 user_id=user_id,
                 plan_code=plan_code,
                 source_ref=f"admin:{user_id}:{self.timestamp.current_timestamp()}",
@@ -1068,11 +1225,11 @@ class AdminService:
                 "expires_at": self._datetime_to_iso(result.expires_at),
             }
 
-        if action == "sync_whitelist_traffic":
+        if action == "sync_traffic_limited":
             user_id = await self._require_user_target(target_user_id, target_tg_id)
             if dry_run:
                 return {"summary": f"Will sync traffic-limited configuration for user {user_id}."}
-            synced = await self.whitelist_traffic_sync_service.sync_user_once(user_id=user_id)
+            synced = await self.traffic_limited_sync_service.sync_user_once(user_id=user_id)
             if not synced:
                 raise HTTPException(status_code=404, detail="Traffic-limited configuration not found")
             return {"summary": "Traffic-limited configuration synced."}
@@ -1090,6 +1247,122 @@ class AdminService:
             return {"summary": "Local subscription caches cleared."}
 
         raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
+
+    @staticmethod
+    def _ensure_action_enabled(action: str) -> None:
+        features = get_effective_product_feature_settings()
+        if action in STANDARD_ADMIN_ACTIONS and not features.standard_config_enabled:
+            raise HTTPException(status_code=404, detail="Standard configuration module is disabled")
+        if action in TRIAL_ADMIN_ACTIONS and not features.commerce_enabled:
+            raise HTTPException(status_code=404, detail="Trial is unavailable when commerce is disabled")
+        if action in ADMIN_OVERRIDE_ADMIN_ACTIONS and not features.access_admin_override_enabled:
+            raise HTTPException(status_code=404, detail="Admin override module is disabled")
+        if action in COMMERCE_ADMIN_ACTIONS and not features.commerce_enabled:
+            raise HTTPException(status_code=404, detail="Commerce module is disabled")
+        if action in REFERRAL_ADMIN_ACTIONS and not features.referrals_enabled:
+            raise HTTPException(status_code=404, detail="Referrals module is disabled")
+        if action in TRAFFIC_LIMITED_ADMIN_ACTIONS and not features.traffic_limited_config_enabled:
+            raise HTTPException(status_code=404, detail="Traffic-limited configuration module is disabled")
+
+    @staticmethod
+    async def _load_active_plan(template_code: str) -> Plan:
+        async with get_db_session() as session:
+            plan = (
+                await session.execute(
+                    select(Plan).where(
+                        Plan.code == str(template_code).strip().lower(),
+                        Plan.is_active.is_(True),
+                    )
+                )
+            ).scalar_one_or_none()
+        if plan is None:
+            raise HTTPException(status_code=404, detail="Access template not found")
+        return plan
+
+    @staticmethod
+    def _ensure_plan_scope_enabled(scope: str) -> None:
+        features = get_effective_product_feature_settings()
+        normalized_scope = str(scope or "").strip().lower()
+        if normalized_scope == PRODUCT_SCOPE_STANDARD and not features.standard_config_enabled:
+            raise HTTPException(status_code=404, detail="Standard configuration module is disabled")
+        if normalized_scope == PRODUCT_SCOPE_TRAFFIC_LIMITED and not features.traffic_limited_config_enabled:
+            raise HTTPException(status_code=404, detail="Traffic-limited configuration module is disabled")
+
+    @staticmethod
+    def _parse_optional_quota_bytes(params: dict[str, Any]) -> int | None:
+        if params.get("quota_bytes_override") not in {None, "", 0, "0"}:
+            return int(params["quota_bytes_override"])
+        if params.get("quota_gb_override") not in {None, "", 0, "0"}:
+            return int(params["quota_gb_override"]) * 1024 * 1024 * 1024
+        return None
+
+    async def _revoke_runtime_access(
+        self,
+        *,
+        user_id: int,
+        scope: str,
+        actor: str,
+        reason: str | None = None,
+    ) -> bool:
+        normalized_scope = str(scope or "").strip().lower()
+        revoked = False
+        if normalized_scope == PRODUCT_SCOPE_STANDARD:
+            revoked = await self.standard_user_subscription_service.revoke_access(user_id=int(user_id))
+        elif normalized_scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+            revoked = await self.traffic_limited_service.revoke_access_for_user(user_id=int(user_id))
+        AccessGrantRepositoryInstance = AccessGrantRepository()
+        await AccessGrantRepositoryInstance.revoke_user_scope_grants(
+            user_id=int(user_id),
+            scope=normalized_scope,
+            actor=actor,
+            reason=reason,
+        )
+        return revoked
+
+    async def disable_registry_entry_and_revoke_access(
+        self,
+        *,
+        entry_id: int,
+        identity_type: str,
+        identity_value: str,
+        principal: AdminPrincipal,
+    ) -> dict[str, Any]:
+        access_registry_repository = AccessRegistryRepository()
+        access_grant_repository = AccessGrantRepository()
+
+        user_ids = await access_registry_repository.resolve_user_ids_for_identity(
+            identity_type=identity_type,
+            identity_value=identity_value,
+        )
+        revoked_grants = 0
+        runtime_revocations = 0
+
+        for user_id in user_ids:
+            revoked = await access_grant_repository.revoke_scope_grants_by_source_types(
+                user_id=int(user_id),
+                scope=PRODUCT_SCOPE_STANDARD,
+                source_types=["access_registry", "access_registry_auto_renew"],
+                actor=principal.actor,
+                reason=f"Registry entry {int(entry_id)} disabled by admin",
+            )
+            if not revoked:
+                continue
+            revoked_grants += len(revoked)
+            has_replacement = await access_grant_repository.has_active_scope_grant(
+                user_id=int(user_id),
+                scope=PRODUCT_SCOPE_STANDARD,
+            )
+            if not has_replacement:
+                runtime_revoked = await self.standard_user_subscription_service.revoke_access(
+                    user_id=int(user_id)
+                )
+                runtime_revocations += int(bool(runtime_revoked))
+
+        return {
+            "matched_users": len(user_ids),
+            "revoked_grants": revoked_grants,
+            "runtime_revocations": runtime_revocations,
+        }
 
     async def _append_audit_log(
         self,
@@ -1336,14 +1609,14 @@ class AdminService:
             logger.warning(f"Failed to build subscription link for {tg_id}, scope={scope}: {err}")
             return ""
 
-    def _serialize_whitelist_profile(
+    def _serialize_traffic_limited_profile(
         self,
         *,
-        whitelist_client: VpnClient | None,
-        whitelist_state: TrafficState | None,
-        whitelist_subscription_link: str,
+        traffic_limited_client: VpnClient | None,
+        traffic_limited_state: TrafficState | None,
+        traffic_limited_subscription_link: str,
     ) -> dict[str, Any]:
-        if whitelist_client is None:
+        if traffic_limited_client is None:
             return {
                 "is_enabled": False,
                 "email": None,
@@ -1362,32 +1635,32 @@ class AdminService:
 
         return {
             "is_enabled": True,
-            "email": str(whitelist_client.external_email),
-            "uuid": str(whitelist_client.external_client_uuid),
-            "sub_id": str(whitelist_client.subscription_external_id),
-            "subscription_link": whitelist_subscription_link,
+            "email": str(traffic_limited_client.external_email),
+            "uuid": str(traffic_limited_client.external_client_uuid),
+            "sub_id": str(traffic_limited_client.subscription_external_id),
+            "subscription_link": traffic_limited_subscription_link,
             "raw_build_link": (
-                f"{BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK}"
-                f"?uuid={whitelist_client.subscription_external_id}"
+                f"{BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK}"
+                f"?uuid={traffic_limited_client.subscription_external_id}"
             ),
-            "allocated_bytes": int(getattr(whitelist_state, "allocated_bytes", 0) or 0),
-            "used_bytes": int(getattr(whitelist_state, "used_bytes", 0) or 0),
-            "remaining_bytes": int(getattr(whitelist_state, "remaining_bytes", 0) or 0),
-            "expires_at": self._datetime_to_iso(getattr(whitelist_state, "expires_at", None)),
+            "allocated_bytes": int(getattr(traffic_limited_state, "allocated_bytes", 0) or 0),
+            "used_bytes": int(getattr(traffic_limited_state, "used_bytes", 0) or 0),
+            "remaining_bytes": int(getattr(traffic_limited_state, "remaining_bytes", 0) or 0),
+            "expires_at": self._datetime_to_iso(getattr(traffic_limited_state, "expires_at", None)),
             "last_provider_sync_at": self._datetime_to_iso(
-                getattr(whitelist_state, "last_provider_sync_at", None)
+                getattr(traffic_limited_state, "last_provider_sync_at", None)
             ),
-            "is_active": self._is_whitelist_active(whitelist_state),
-            "is_blocked": bool(getattr(whitelist_state, "is_blocked", False)),
+            "is_active": self._is_traffic_limited_active(traffic_limited_state),
+            "is_blocked": bool(getattr(traffic_limited_state, "is_blocked", False)),
         }
 
-    def _serialize_whitelist_diagnostics(
+    def _serialize_traffic_limited_diagnostics(
         self,
         *,
-        whitelist_client: VpnClient | None,
-        whitelist_state: TrafficState | None,
+        traffic_limited_client: VpnClient | None,
+        traffic_limited_state: TrafficState | None,
     ) -> dict[str, Any]:
-        if whitelist_client is None:
+        if traffic_limited_client is None:
             return {
                 "status": "missing",
                 "details": None,
@@ -1403,31 +1676,51 @@ class AdminService:
         return {
             "status": "present",
             "details": (
-                f"uuid={whitelist_client.external_client_uuid}, "
-                f"email={whitelist_client.external_email}"
+                f"uuid={traffic_limited_client.external_client_uuid}, "
+                f"email={traffic_limited_client.external_email}"
             ),
-            "allocated_bytes": int(getattr(whitelist_state, "allocated_bytes", 0) or 0),
-            "used_bytes": int(getattr(whitelist_state, "used_bytes", 0) or 0),
-            "remaining_bytes": int(getattr(whitelist_state, "remaining_bytes", 0) or 0),
-            "expires_at": self._datetime_to_iso(getattr(whitelist_state, "expires_at", None)),
+            "allocated_bytes": int(getattr(traffic_limited_state, "allocated_bytes", 0) or 0),
+            "used_bytes": int(getattr(traffic_limited_state, "used_bytes", 0) or 0),
+            "remaining_bytes": int(getattr(traffic_limited_state, "remaining_bytes", 0) or 0),
+            "expires_at": self._datetime_to_iso(getattr(traffic_limited_state, "expires_at", None)),
             "last_provider_sync_at": self._datetime_to_iso(
-                getattr(whitelist_state, "last_provider_sync_at", None)
+                getattr(traffic_limited_state, "last_provider_sync_at", None)
             ),
-            "is_active": self._is_whitelist_active(whitelist_state),
-            "is_blocked": bool(getattr(whitelist_state, "is_blocked", False)),
+            "is_active": self._is_traffic_limited_active(traffic_limited_state),
+            "is_blocked": bool(getattr(traffic_limited_state, "is_blocked", False)),
         }
 
-    def _is_whitelist_active(self, whitelist_state: TrafficState | None) -> bool:
-        if whitelist_state is None:
+    @staticmethod
+    def _serialize_access_grant(row: AccessGrant) -> dict[str, Any]:
+        return {
+            "id": int(row.id),
+            "template_code": str(row.template_code),
+            "template_label": format_access_template_label(str(row.template_code)),
+            "scope": str(row.scope),
+            "entitlement_kind": str(row.entitlement_kind),
+            "source_type": str(row.source_type),
+            "source_ref": row.source_ref,
+            "status": str(row.status),
+            "expires_at": AdminService._datetime_to_iso(row.expires_at),
+            "quota_bytes": int(row.quota_bytes) if row.quota_bytes is not None else None,
+            "granted_by_user_id": int(row.granted_by_user_id) if row.granted_by_user_id is not None else None,
+            "created_at": AdminService._datetime_to_iso(row.created_at),
+            "activated_at": AdminService._datetime_to_iso(row.activated_at),
+            "revoked_at": AdminService._datetime_to_iso(getattr(row, "revoked_at", None)),
+            "metadata": dict(row.metadata_json or {}),
+        }
+
+    def _is_traffic_limited_active(self, traffic_limited_state: TrafficState | None) -> bool:
+        if traffic_limited_state is None:
             return False
-        return self._is_whitelist_active_from_primitives(
-            remaining_bytes=getattr(whitelist_state, "remaining_bytes", 0),
-            expires_at=getattr(whitelist_state, "expires_at", None),
-            is_blocked=getattr(whitelist_state, "is_blocked", False),
+        return self._is_traffic_limited_active_from_primitives(
+            remaining_bytes=getattr(traffic_limited_state, "remaining_bytes", 0),
+            expires_at=getattr(traffic_limited_state, "expires_at", None),
+            is_blocked=getattr(traffic_limited_state, "is_blocked", False),
         )
 
     @staticmethod
-    def _is_whitelist_active_from_primitives(
+    def _is_traffic_limited_active_from_primitives(
         *,
         remaining_bytes: int | None,
         expires_at: datetime | None,
@@ -1561,14 +1854,14 @@ class AdminService:
         expiration_date: datetime | None,
         has_web_account: bool,
         has_telegram: bool,
-        active_whitelist: bool,
+        active_traffic_limited: bool,
         blocked_at: datetime | None,
         is_active: bool | None = None,
     ) -> dict[str, Any]:
         resolved_is_active = (
             bool(is_active)
             if is_active is not None
-            else (self._is_future_datetime(expiration_date) or bool(active_whitelist))
+            else (self._is_future_datetime(expiration_date) or bool(active_traffic_limited))
         )
         return {
             "user_id": int(user_id),
@@ -1590,7 +1883,7 @@ class AdminService:
                 if has_telegram
                 else "internal"
             ),
-            "has_whitelist": bool(active_whitelist),
+            "has_traffic_limited": bool(active_traffic_limited),
             "is_active": resolved_is_active,
             "is_blocked": blocked_at is not None,
             "blocked_at": self._datetime_to_iso(blocked_at),
@@ -1640,7 +1933,7 @@ class AdminService:
             "subscription_state": {
                 "current_expires_at": AdminService._datetime_to_iso(getattr(subscription_state, "current_expires_at", None)),
                 "trial_activated_at": AdminService._datetime_to_iso(getattr(subscription_state, "trial_activated_at", None)),
-                "news_bonus_activated_at": AdminService._datetime_to_iso(getattr(subscription_state, "news_bonus_activated_at", None)),
+                "info_channel_activated_at": AdminService._datetime_to_iso(getattr(subscription_state, "info_channel_activated_at", None)),
                 "blocked_at": AdminService._datetime_to_iso(getattr(subscription_state, "blocked_at", None)),
                 "updated_at": AdminService._datetime_to_iso(getattr(subscription_state, "updated_at", None)),
                 "version": getattr(subscription_state, "version", None),
@@ -1696,7 +1989,7 @@ class AdminService:
         tg_id: int,
     ) -> PaymentSnapshot:
         order_metadata = dict(order.metadata_json or {})
-        plan_payload = str(order_metadata.get("legacy_payload") or "").strip()
+        plan_payload = str(order_metadata.get("plan_payload") or "").strip()
         provider_status = str(getattr(attempt, "provider_status", "") or "").strip().lower()
         order_status = str(order.status or "").strip().lower()
 

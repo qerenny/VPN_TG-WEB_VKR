@@ -5,7 +5,13 @@ from dataclasses import asdict, is_dataclass
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth.web_auth import require_web_user
-from backend.bootstrap import get_account_service, get_linking_service, get_web_checkout_service, get_web_promo_service
+from backend.bootstrap import (
+    get_access_request_service,
+    get_account_service,
+    get_linking_service,
+    get_web_checkout_service,
+    get_web_promo_service,
+)
 from backend.schemas.auth.auth_schemas import WebMeResponse
 from backend.schemas.me.account_schemas import (
     WebLinksResponse,
@@ -15,6 +21,16 @@ from backend.schemas.me.account_schemas import (
     WebProfileUpdateRequest,
     WebReferralStatsResponse,
     WebSubscriptionsResponse,
+)
+from backend.schemas.me.access_request_schemas import (
+    WebAccessRequestCreateRequest,
+    WebAccessRequestListResponse,
+    WebAccessRequestRepeatResponse,
+    WebAccessRequestResponse,
+)
+from backend.schemas.me.access_grant_schemas import (
+    WebAccessGrantListResponse,
+    WebAccessGrantResponse,
 )
 from backend.schemas.me.linking_schemas import TelegramLinkStartResponse
 from backend.schemas.me.payment_checkout_schemas import (
@@ -30,8 +46,13 @@ from backend.services.auth.auth_service import AuthenticatedWebUser
 from backend.services.linking.linking_service import LinkingService
 from backend.services.payments.web_checkout_service import WebCheckoutService
 from backend.services.promo.web_promo_service import WebPromoService, PromoError
-from shared.config.settings import ProductFeatureSettings, get_product_feature_settings
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.config.settings import (
+    ProductFeatureSettings,
+    get_effective_product_feature_settings,
+    get_product_feature_settings,
+)
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
+from shared.services.access.access_request_service import AccessRequestService
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -47,7 +68,7 @@ def _raise_feature_disabled() -> None:
 
 
 def _require_commerce_enabled(features: ProductFeatureSettings | None = None) -> ProductFeatureSettings:
-    current = features or get_product_feature_settings()
+    current = features or get_effective_product_feature_settings()
     if not current.commerce_enabled:
         _raise_feature_disabled()
     return current
@@ -61,14 +82,14 @@ def _require_web_purchase_enabled(features: ProductFeatureSettings | None = None
 
 
 def _require_referrals_enabled(features: ProductFeatureSettings | None = None) -> ProductFeatureSettings:
-    current = features or get_product_feature_settings()
+    current = features or get_effective_product_feature_settings()
     if not current.referrals_enabled:
         _raise_feature_disabled()
     return current
 
 
 def _require_promos_enabled(features: ProductFeatureSettings | None = None) -> ProductFeatureSettings:
-    current = features or get_product_feature_settings()
+    current = features or get_effective_product_feature_settings()
     if not current.promos_enabled:
         _raise_feature_disabled()
     return current
@@ -77,8 +98,31 @@ def _require_promos_enabled(features: ProductFeatureSettings | None = None) -> P
 def _require_traffic_limited_config_enabled(
     features: ProductFeatureSettings | None = None,
 ) -> ProductFeatureSettings:
-    current = features or get_product_feature_settings()
+    current = features or get_effective_product_feature_settings()
     if not current.traffic_limited_config_enabled:
+        _raise_feature_disabled()
+    return current
+
+
+def _require_standard_config_enabled(
+    features: ProductFeatureSettings | None = None,
+) -> ProductFeatureSettings:
+    current = features or get_effective_product_feature_settings()
+    if not current.standard_config_enabled:
+        _raise_feature_disabled()
+    return current
+
+
+def _require_access_requests_enabled(features: ProductFeatureSettings | None = None) -> ProductFeatureSettings:
+    current = features or get_effective_product_feature_settings()
+    if not current.access_requests_enabled:
+        _raise_feature_disabled()
+    return current
+
+
+def _require_access_templates_enabled(features: ProductFeatureSettings | None = None) -> ProductFeatureSettings:
+    current = features or get_effective_product_feature_settings()
+    if not current.commerce_enabled and not current.access_requests_enabled:
         _raise_feature_disabled()
     return current
 
@@ -154,7 +198,7 @@ async def get_web_plan_catalog(
     principal: AuthenticatedWebUser = Depends(require_web_user),
     account_service: AccountService = Depends(get_account_service),
 ):
-    _require_commerce_enabled()
+    _require_access_templates_enabled()
     return WebPlanCatalogResponse(**(await account_service.get_plan_catalog()))
 
 
@@ -176,6 +220,70 @@ async def get_web_links(
     return WebLinksResponse(**(await account_service.get_links(user_id=principal.user_id)))
 
 
+@router.get("/access-requests", response_model=WebAccessRequestListResponse)
+async def get_web_access_requests(
+    principal: AuthenticatedWebUser = Depends(require_web_user),
+    access_request_service: AccessRequestService = Depends(get_access_request_service),
+):
+    _require_access_requests_enabled()
+    return WebAccessRequestListResponse(
+        items=[
+            WebAccessRequestResponse(**_serialize_payload(item))
+            for item in await access_request_service.list_user_requests(user_id=principal.user_id)
+        ]
+    )
+
+
+@router.get("/access-grants", response_model=WebAccessGrantListResponse)
+async def get_web_access_grants(
+    principal: AuthenticatedWebUser = Depends(require_web_user),
+    account_service: AccountService = Depends(get_account_service),
+):
+    return WebAccessGrantListResponse(
+        items=[
+            WebAccessGrantResponse(**item)
+            for item in await account_service.get_access_grants(user_id=principal.user_id)
+        ]
+    )
+
+
+@router.post("/access-requests", response_model=WebAccessRequestResponse)
+async def create_web_access_request(
+    payload: WebAccessRequestCreateRequest,
+    principal: AuthenticatedWebUser = Depends(require_web_user),
+    access_request_service: AccessRequestService = Depends(get_access_request_service),
+):
+    _require_access_requests_enabled()
+    return WebAccessRequestResponse(
+        **_serialize_payload(
+            await access_request_service.create_request(
+                user_id=principal.user_id,
+                template_code=payload.template_code,
+                comment=payload.comment,
+                channel="web",
+                request_kind=payload.request_kind,
+            )
+        )
+    )
+
+
+@router.post("/access-requests/{request_id}/repeat", response_model=WebAccessRequestRepeatResponse)
+async def repeat_web_access_request(
+    request_id: int,
+    principal: AuthenticatedWebUser = Depends(require_web_user),
+    access_request_service: AccessRequestService = Depends(get_access_request_service),
+):
+    _require_access_requests_enabled()
+    return WebAccessRequestRepeatResponse(
+        **_serialize_payload(
+            await access_request_service.repeat_request(
+                user_id=principal.user_id,
+                request_id=int(request_id),
+            )
+        )
+    )
+
+
 @router.post("/links/telegram/start", response_model=TelegramLinkStartResponse)
 async def start_telegram_link(
     principal: AuthenticatedWebUser = Depends(require_web_user),
@@ -192,7 +300,7 @@ async def create_web_checkout(
     checkout_service: WebCheckoutService = Depends(get_web_checkout_service),
 ):
     _require_web_purchase_enabled()
-    _require_traffic_limited_config_enabled()
+    _require_standard_config_enabled()
     result = await checkout_service.create_checkout(
         user_id=principal.user_id,
         plan_code=payload.plan_code,
@@ -202,18 +310,19 @@ async def create_web_checkout(
     return WebCheckoutResponse(**_serialize_payload(result))
 
 
-@router.post("/payments/checkout/whitelist", response_model=WebCheckoutResponse)
-async def create_whitelist_web_checkout(
+@router.post("/payments/checkout/traffic-limited", response_model=WebCheckoutResponse)
+async def create_traffic_limited_web_checkout(
     payload: WebCheckoutRequest,
     principal: AuthenticatedWebUser = Depends(require_web_user),
     checkout_service: WebCheckoutService = Depends(get_web_checkout_service),
 ):
     _require_web_purchase_enabled()
+    _require_traffic_limited_config_enabled()
     result = await checkout_service.create_checkout(
         user_id=principal.user_id,
         plan_code=payload.plan_code,
         method=payload.method,
-        expected_scope=PRODUCT_SCOPE_WHITELIST,
+        expected_scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
     )
     return WebCheckoutResponse(**_serialize_payload(result))
 

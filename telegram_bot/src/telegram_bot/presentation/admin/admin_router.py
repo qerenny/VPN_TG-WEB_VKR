@@ -5,6 +5,10 @@ from telegram_bot.presentation.admin.command_handler import AdminCommandHandler
 
 
 def register_admin_routes(admin_command_handler: AdminCommandHandler):
+    @bot.callback_query_handler(func=lambda call: str(call.data or "").startswith("admin_"))
+    async def handle_admin_callback(call):
+        await admin_command_handler.handle_admin_callback(call)
+
     @bot.message_handler(commands=["admin_panel"])
     async def handle_admin_panel(message: Message):
         await admin_command_handler.show_admin_panel(message)
@@ -36,6 +40,10 @@ def register_admin_routes(admin_command_handler: AdminCommandHandler):
             chat_id=message.chat.id,
             limit=limit,
         )
+
+    @bot.message_handler(func=lambda message: admin_command_handler.has_pending_input(message.chat.id))
+    async def handle_admin_pending_input(message: Message):
+        await admin_command_handler.handle_admin_text(message)
 
     # @bot_fun.message_handler(commands=['message'])
     # async def handle_broadcast(message: Message):

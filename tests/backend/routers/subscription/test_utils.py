@@ -70,35 +70,35 @@ def test_process_subscription_content_prefers_explicit_inbound_labels():
     assert result == ["vless://uuid@server:443?type=tcp#Finland::"]
 
 
-def test_process_subscription_content_formats_whitelist_location_label(monkeypatch):
+def test_process_subscription_content_formats_traffic_limited_location_label(monkeypatch):
     monkeypatch.setattr(utils, "KEY_PROFILE_TAG", "🔐")
 
     result = utils.process_subscription_content(
         b"vless://uuid@server:443?type=tcp#remote_access_support@bold-union-6aa5f0f9_1",
-        scope="whitelist",
+        scope="traffic_limited",
     )
 
     assert result == ["vless://uuid@server:443?type=tcp#Germany🔐🏳️"]
 
 
-def test_process_subscription_content_formats_whitelist_explicit_inbound_label(monkeypatch):
+def test_process_subscription_content_formats_traffic_limited_explicit_inbound_label(monkeypatch):
     monkeypatch.setattr(utils, "KEY_PROFILE_TAG", "🔐")
 
     result = utils.process_subscription_content(
         b"vless://uuid@server:443?type=tcp#user_2",
-        scope="whitelist",
+        scope="traffic_limited",
         inbound_labels={2: "Finland"},
     )
 
     assert result == ["vless://uuid@server:443?type=tcp#Finland🔐🏳️"]
 
 
-def test_process_subscription_content_does_not_duplicate_whitelist_decorations(monkeypatch):
+def test_process_subscription_content_does_not_duplicate_traffic_limited_decorations(monkeypatch):
     monkeypatch.setattr(utils, "KEY_PROFILE_TAG", "🔐")
 
     result = utils.process_subscription_content(
         b"vless://uuid@server:443?type=tcp#user_2",
-        scope="whitelist",
+        scope="traffic_limited",
         inbound_labels={2: "🏳️ Finland🔐🏳️"},
     )
 

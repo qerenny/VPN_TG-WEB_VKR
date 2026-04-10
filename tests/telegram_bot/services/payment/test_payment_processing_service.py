@@ -7,21 +7,23 @@ from telegram_bot.services.payments.payment_processing_service import PaymentPro
 
 @pytest.fixture
 def service_and_mocks():
-    subscription_manager = AsyncMock()
+    access_issuance_service = AsyncMock()
     bonuses = AsyncMock()
-    whitelist_traffic_service = AsyncMock()
     service = PaymentProcessingService(
-        subscription_manager,
+        access_issuance_service,
         bonuses,
-        whitelist_traffic_service=whitelist_traffic_service,
     )
-    return service, subscription_manager, bonuses, whitelist_traffic_service
+    return service, access_issuance_service, bonuses
 
 
 @pytest.mark.asyncio
 async def test_payment_processing_returns_subscription_and_bonus_messages(service_and_mocks):
-    service, subscription_manager, bonuses, _ = service_and_mocks
-    subscription_manager.activate_or_extend_subscription.return_value = ("updated", "date")
+    service, access_issuance_service, bonuses = service_and_mocks
+    access_issuance_service.activate_from_payload.return_value = type(
+        "AccessResult",
+        (),
+        {"activation_text": "updated", "activation_details_text": "date"},
+    )()
     bonuses.grant_pending_and_referrer_bonus.return_value = (5, 999, 3)
 
     with patch(
@@ -31,9 +33,12 @@ async def test_payment_processing_returns_subscription_and_bonus_messages(servic
         result = await service.payment_processing(tg_id=1, product="month1")
 
     assert result == ("updated", "date", "Bonus 5", "Bonus 3", 999)
-    subscription_manager.activate_or_extend_subscription.assert_awaited_once_with(
+    access_issuance_service.activate_from_payload.assert_awaited_once_with(
+        payload="month1",
+        source_type="payment",
+        source_ref="month1",
         tg_id=1,
-        period="month1",
+        user_id=None,
     )
     bonuses.grant_pending_and_referrer_bonus.assert_awaited_once_with(1)
     assert get_message.call_count == 2
@@ -41,8 +46,12 @@ async def test_payment_processing_returns_subscription_and_bonus_messages(servic
 
 @pytest.mark.asyncio
 async def test_payment_processing_omits_bonus_messages_when_nothing_granted(service_and_mocks):
-    service, subscription_manager, bonuses, _ = service_and_mocks
-    subscription_manager.activate_or_extend_subscription.return_value = ("u", "d")
+    service, access_issuance_service, bonuses = service_and_mocks
+    access_issuance_service.activate_from_payload.return_value = type(
+        "AccessResult",
+        (),
+        {"activation_text": "u", "activation_details_text": "d"},
+    )()
     bonuses.grant_pending_and_referrer_bonus.return_value = (0, None, None)
 
     with patch(
@@ -56,8 +65,12 @@ async def test_payment_processing_omits_bonus_messages_when_nothing_granted(serv
 
 @pytest.mark.asyncio
 async def test_payment_processing_continues_when_bonus_flow_fails(service_and_mocks):
-    service, subscription_manager, bonuses, _ = service_and_mocks
-    subscription_manager.activate_or_extend_subscription.return_value = ("updated", "date")
+    service, access_issuance_service, bonuses = service_and_mocks
+    access_issuance_service.activate_from_payload.return_value = type(
+        "AccessResult",
+        (),
+        {"activation_text": "updated", "activation_details_text": "date"},
+    )()
     bonuses.grant_pending_and_referrer_bonus.side_effect = Exception("bonus failed")
 
     result = await service.payment_processing(tg_id=7, product="month3")
@@ -67,9 +80,13 @@ async def test_payment_processing_continues_when_bonus_flow_fails(service_and_mo
 
 @pytest.mark.asyncio
 async def test_payment_processing_skips_bonus_flow_when_referrals_disabled(service_and_mocks):
-    service, subscription_manager, bonuses, _ = service_and_mocks
+    service, access_issuance_service, bonuses = service_and_mocks
     service.referrals_enabled = False
-    subscription_manager.activate_or_extend_subscription.return_value = ("updated", "date")
+    access_issuance_service.activate_from_payload.return_value = type(
+        "AccessResult",
+        (),
+        {"activation_text": "updated", "activation_details_text": "date"},
+    )()
 
     with patch(
         "telegram_bot.services.payments.payment_processing_service.messages.get_random_message",
@@ -83,8 +100,8 @@ async def test_payment_processing_skips_bonus_flow_when_referrals_disabled(servi
 
 @pytest.mark.asyncio
 async def test_payment_processing_propagates_subscription_errors(service_and_mocks):
-    service, subscription_manager, bonuses, _ = service_and_mocks
-    subscription_manager.activate_or_extend_subscription.side_effect = Exception("boom")
+    service, access_issuance_service, bonuses = service_and_mocks
+    access_issuance_service.activate_from_payload.side_effect = Exception("boom")
 
     with pytest.raises(Exception, match="boom"):
         await service.payment_processing(tg_id=9, product="month6")
@@ -93,21 +110,20 @@ async def test_payment_processing_propagates_subscription_errors(service_and_moc
 
 
 @pytest.mark.asyncio
-async def test_payment_processing_routes_whitelist_products_to_traffic_service(service_and_mocks):
-    service, subscription_manager, bonuses, whitelist_traffic_service = service_and_mocks
-    whitelist_traffic_service.activate_payment.return_value = type(
-        "Result",
+async def test_payment_processing_routes_traffic_limited_products_to_traffic_service(service_and_mocks):
+    service, access_issuance_service, bonuses = service_and_mocks
+    access_issuance_service.activate_from_payload.return_value = type(
+        "AccessResult",
         (),
         {
-            "granted_bytes": 15 * 1024 * 1024 * 1024,
-            "remaining_bytes": 35 * 1024 * 1024 * 1024,
-            "expires_at": None,
+            "activation_text": "✅ Конфигурация с лимитом трафика активирована: +15 GB",
+            "activation_details_text": "Остаток: 35 GB\nДействует до: без ограничения по сроку",
         },
     )()
 
     result = await service.payment_processing(
         tg_id=1,
-        product="whitelist15gb",
+        product="traffic_limited15gb",
         payment_id="pay-wl-1",
     )
 
@@ -118,10 +134,11 @@ async def test_payment_processing_routes_whitelist_products_to_traffic_service(s
         None,
         None,
     )
-    whitelist_traffic_service.activate_payment.assert_awaited_once_with(
+    access_issuance_service.activate_from_payload.assert_awaited_once_with(
+        payload="traffic_limited15gb",
+        source_type="payment",
+        source_ref="pay-wl-1",
         tg_id=1,
-        product="whitelist15gb",
-        payment_id="pay-wl-1",
+        user_id=None,
     )
-    subscription_manager.activate_or_extend_subscription.assert_not_awaited()
     bonuses.grant_pending_and_referrer_bonus.assert_not_awaited()

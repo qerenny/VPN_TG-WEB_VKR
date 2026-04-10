@@ -17,23 +17,21 @@ def service_and_mocks():
     instruction = MagicMock()
     user_info_service = AsyncMock()
     timestamp = MagicMock()
-    sync_service = AsyncMock()
     service = SubscriptionFlowService(
         repo=repo,
         subscription_service=subscription_service,
         instruction=instruction,
         user_subscription_info_service=user_info_service,
         timestamp=timestamp,
-        sync_service=sync_service,
     )
-    return service, repo, subscription_service, user_info_service, timestamp, sync_service
+    return service, repo, subscription_service, user_info_service, timestamp
 
 
 @pytest.mark.asyncio
 async def test_activate_or_extend_subscription_formats_existing_subscription_response(
     service_and_mocks,
 ):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     user = SimpleNamespace(expiration_date=1234567890)
     repo.get.return_value = user
     user_info_service.expiry_date_view.return_value = "Подписка активна до 01.01.2027"
@@ -60,7 +58,7 @@ async def test_activate_or_extend_subscription_formats_existing_subscription_res
 async def test_activate_or_extend_subscription_formats_new_subscription_response(
     service_and_mocks,
 ):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     user = SimpleNamespace(expiration_date=None)
     repo.get.return_value = user
     user_info_service.expiry_date_view.return_value = "Подписка истекает 08.01.2027"
@@ -82,7 +80,7 @@ async def test_activate_or_extend_subscription_formats_new_subscription_response
 
 @pytest.mark.asyncio
 async def test_activate_or_extend_subscription_raises_for_unknown_user(service_and_mocks):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     repo.get.return_value = None
 
     with pytest.raises(AttributeError, match="User not found"):
@@ -93,7 +91,7 @@ async def test_activate_or_extend_subscription_raises_for_unknown_user(service_a
 
 @pytest.mark.asyncio
 async def test_activate_trial_creates_trial_for_user_without_subscription(service_and_mocks):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     repo.get.return_value = SimpleNamespace(expiration_date=None, tg_id=99999, trial_date=None)
     timestamp.current_timestamp.return_value = 1640995200
 
@@ -111,7 +109,7 @@ async def test_activate_trial_creates_trial_for_user_without_subscription(servic
 
 @pytest.mark.asyncio
 async def test_activate_trial_returns_none_for_existing_subscription(service_and_mocks):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     repo.get.return_value = SimpleNamespace(expiration_date=1234567890)
 
     result = await service.activate_trial(55555)
@@ -122,28 +120,28 @@ async def test_activate_trial_returns_none_for_existing_subscription(service_and
 
 
 @pytest.mark.asyncio
-async def test_set_tg_news_channel_date_only_sets_it_once(service_and_mocks):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+async def test_set_tg_info_channel_date_only_sets_it_once(service_and_mocks):
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     repo.get.side_effect = [
-        SimpleNamespace(tg_id=77, news_channel_date=None),
-        SimpleNamespace(news_channel_date=123),
+        SimpleNamespace(tg_id=77, info_channel_date=None),
+        SimpleNamespace(info_channel_date=123),
     ]
     timestamp.current_timestamp.return_value = 1700000000
 
-    first = await service.set_tg_news_channel_date(77)
-    second = await service.set_tg_news_channel_date(77)
+    first = await service.set_tg_info_channel_date(77)
+    second = await service.set_tg_info_channel_date(77)
 
     assert first is True
     assert second is None
-    repo.set_news_channel_date.assert_awaited_once_with(
+    repo.set_info_channel_date.assert_awaited_once_with(
         tg_id=77,
-        news_channel_date=1700000000,
+        info_channel_date=1700000000,
     )
 
 
 @pytest.mark.asyncio
 async def test_activate_trial_serializes_same_user_requests(service_and_mocks):
-    service, repo, subscription_service, user_info_service, timestamp, sync_service = service_and_mocks
+    service, repo, subscription_service, user_info_service, timestamp = service_and_mocks
     state = {"active": False}
 
     async def get_user(_tg_id):

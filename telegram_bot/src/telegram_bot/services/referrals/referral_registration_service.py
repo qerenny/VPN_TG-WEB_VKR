@@ -16,7 +16,7 @@ from shared.infrastructure.referrals.referral_repository import (
     ReferralSnapshot,
 )
 from shared.infrastructure.users.telegram_user_repository import TelegramUserRepository
-from shared.infrastructure.growth_sync_service import (
+from shared.infrastructure.growth_service import (
     ReferralRewardContext,
 )
 from shared.utils.logging_utils import logger
@@ -35,7 +35,6 @@ class ReferralRegistrationService:
         promo_usage_repo: PromoCodeUsageRepository,
         validator: ReferralValidatorService,
         bonuses: ReferralBonusService,
-        sync_service=None,
     ):
         self.repo = repo
         self.user_repo = user_repo
@@ -117,7 +116,7 @@ class ReferralRegistrationService:
             return False
         if user.trial_date is not None:
             return False
-        if user.news_channel_date is not None:
+        if user.info_channel_date is not None:
             return False
 
         if referral_exists is not None and referral_exists.referrer_tg_id is not None:

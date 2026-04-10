@@ -6,7 +6,6 @@ from typing import List, Optional, Tuple
 
 from sqlmodel import select
 
-from shared.config.settings import RolloutFeatureFlags
 from shared.constants.payments import (
     ORDER_STATUS_CANCELED,
     ORDER_STATUS_FAILED,
@@ -20,11 +19,12 @@ from shared.constants.payments import (
     RUNTIME_PAYMENT_STATUS_PENDING,
 )
 from shared.infrastructure.base_repository import BaseRepository
-from shared.infrastructure.payment_plan_catalog import get_plan_seed_by_legacy_payload
-from shared.infrastructure.payment_sync_service import PaymentSyncService
+from shared.infrastructure.payment_plan_catalog import get_plan_seed_by_payload
 from shared.models.payments.payment_attempt_model import PaymentAttempt
 from shared.models.payments.payment_order_model import PaymentOrder
 from shared.models.payments.plan_model import Plan
+from shared.models.subscriptions.subscription_grant_model import SubscriptionGrant
+from shared.models.subscriptions.subscription_state_model import SubscriptionState
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.product_constants import ENTITLEMENT_KIND_TIME
 from shared.utils.logging_utils import log_function_call, setup_logger
@@ -44,28 +44,30 @@ class PaymentSnapshot:
 
 
 class PaymentRepository(BaseRepository[PaymentSnapshot]):
-    def __init__(self, features: RolloutFeatureFlags | None = None):
+    def __init__(self):
         super().__init__(PaymentSnapshot)
-        self.features = features or RolloutFeatureFlags()
-        self.sync_service = PaymentSyncService(
-            RolloutFeatureFlags(db_dual_write_payments=True)
-        )
 
     @log_function_call(logger)
     async def create(self, obj: PaymentSnapshot) -> PaymentSnapshot:
-        if getattr(obj, "user_id", None) is not None:
-            async with self.get_session() as session:
-                await self._create_current_payment(session, obj)
-            created = await self.get_by_payment_id(str(obj.payment_id))
-            return created or obj
-
-        await self.sync_service.sync_legacy_payment(
-            obj,
-            provider=obj.method,
-            status_changed_at=self._legacy_ts_to_datetime(obj.created_at)
-            or datetime.now(timezone.utc),
-        )
-        return obj
+        async with self.get_session() as session:
+            normalized = PaymentSnapshot(
+                payment_id=str(obj.payment_id),
+                user_id=getattr(obj, "user_id", None),
+                tg_id=getattr(obj, "tg_id", None),
+                status=str(obj.status),
+                payload=str(obj.payload),
+                created_at=int(obj.created_at),
+                confirmed=bool(obj.confirmed),
+                method=obj.method,
+            )
+            if normalized.user_id is None:
+                normalized.user_id = await self._resolve_user_id_by_tg_id(
+                    session,
+                    tg_id=normalized.tg_id,
+                )
+            await self._create_current_payment(session, normalized)
+        created = await self.get_by_payment_id(str(obj.payment_id))
+        return created or obj
 
     @log_function_call(logger)
     async def get_by_payment_id(self, payment_id: str) -> Optional[PaymentSnapshot]:
@@ -87,13 +89,6 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
                 status=str(status),
                 confirmed=bool(confirmed),
             )
-        if (
-            confirmed
-            and payment.tg_id is not None
-            and self._should_finalize_subscription_grant(payment.payload)
-        ):
-            await self.sync_service.finalize_subscription_grant(payment)
-
     @log_function_call(logger)
     async def update_status_batch(self, updates: List[Tuple[str, str, bool]]) -> None:
         if not updates:
@@ -157,7 +152,7 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
                 PaymentOrder.fulfilled_at,
                 PaymentOrder.subscription_grant_id,
                 PaymentOrder.metadata_json,
-                Plan.legacy_payload.label("plan_legacy_payload"),
+                Plan.payload.label("plan_payload"),
                 Plan.metadata_json.label("plan_metadata_json"),
                 TelegramAccount.telegram_id,
             )
@@ -180,9 +175,9 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
         plan_metadata = row.plan_metadata_json or {}
 
         payload = (
-            str(order_metadata.get("legacy_payload") or "").strip()
-            or str(getattr(row, "plan_legacy_payload", "") or "").strip()
-            or str(plan_metadata.get("legacy_payload") or "").strip()
+            str(order_metadata.get("plan_payload") or "").strip()
+            or str(getattr(row, "plan_payload", "") or "").strip()
+            or str(plan_metadata.get("plan_payload") or "").strip()
             or ""
         )
         status = self._map_v2_status_to_runtime(
@@ -236,7 +231,7 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
             idempotency_key=f"runtime_payment:{obj.payment_id}",
             subscription_grant_id=None,
             metadata_json={
-                "legacy_payload": str(obj.payload),
+                "plan_payload": str(obj.payload),
                 "legacy_payment_id": str(obj.payment_id),
                 "initiated_via": "telegram" if obj.tg_id is not None else "web",
             },
@@ -294,11 +289,26 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
             order.paid_at = now
         if target_order_status == ORDER_STATUS_FULFILLED and order.fulfilled_at is None:
             order.fulfilled_at = now
+        if confirmed and order.subscription_grant_id is None:
+            plan = await session.get(Plan, int(order.plan_id))
+            if plan is None:
+                raise ValueError(f"Plan {order.plan_id} not found for payment order {order.id}")
+            if self._should_finalize_subscription_grant(plan):
+                grant = await self._get_or_create_subscription_grant(
+                    session,
+                    order=order,
+                    plan=plan,
+                    created_at=order.created_at or now,
+                    applied_at=now,
+                    payment_id=str(payment_id),
+                )
+                order.subscription_grant_id = int(grant.id)
+                order.status = ORDER_STATUS_FULFILLED
 
         await session.commit()
 
     async def _get_plan_for_payload(self, session, payload: str) -> Plan:
-        seed = get_plan_seed_by_legacy_payload(str(payload))
+        seed = get_plan_seed_by_payload(str(payload))
         if seed is None:
             raise ValueError(f"Unsupported payment payload: {payload!r}")
         plan = (
@@ -307,6 +317,67 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
         if plan is None:
             raise ValueError(f"Plan {seed.code} not found for payload {payload!r}")
         return plan
+
+    async def _resolve_user_id_by_tg_id(self, session, *, tg_id: int | None) -> int:
+        if tg_id is None:
+            raise ValueError("Payment requires either user_id or tg_id")
+        telegram_account = (
+            await session.execute(
+                select(TelegramAccount).where(
+                    TelegramAccount.telegram_id == int(tg_id),
+                    TelegramAccount.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if telegram_account is None:
+            raise ValueError(f"Telegram account not found for tg_id={tg_id}")
+        return int(telegram_account.user_id)
+
+    async def _get_or_create_subscription_grant(
+        self,
+        session,
+        *,
+        order: PaymentOrder,
+        plan: Plan,
+        created_at: datetime,
+        applied_at: datetime,
+        payment_id: str,
+    ) -> SubscriptionGrant:
+        if order.subscription_grant_id is not None:
+            grant = await session.get(SubscriptionGrant, int(order.subscription_grant_id))
+            if grant is not None:
+                return grant
+
+        grant = (
+            await session.execute(
+                select(SubscriptionGrant).where(
+                    SubscriptionGrant.source_type == "payment_order",
+                    SubscriptionGrant.source_ref == str(order.id),
+                )
+            )
+        ).scalar_one_or_none()
+        if grant is not None:
+            return grant
+
+        subscription_state = await session.get(SubscriptionState, int(order.user_id))
+        grant = SubscriptionGrant(
+            user_id=int(order.user_id),
+            plan_id=int(order.plan_id),
+            source_type="payment_order",
+            source_ref=str(order.id),
+            status="applied",
+            duration_days=plan.duration_days,
+            expires_before=None,
+            expires_after=getattr(subscription_state, "current_expires_at", None),
+            created_at=created_at,
+            applied_at=applied_at,
+            metadata_json={
+                "payment_id": str(payment_id),
+            },
+        )
+        session.add(grant)
+        await session.flush()
+        return grant
 
     async def _find_attempt(
         self,
@@ -378,11 +449,8 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
         return normalized_order or RUNTIME_PAYMENT_STATUS_PENDING
 
     @staticmethod
-    def _should_finalize_subscription_grant(payload: str) -> bool:
-        seed = get_plan_seed_by_legacy_payload(str(payload))
-        if seed is None:
-            return True
-        return seed.entitlement_kind == ENTITLEMENT_KIND_TIME
+    def _should_finalize_subscription_grant(plan: Plan) -> bool:
+        return str(getattr(plan, "entitlement_kind", "") or "").strip().lower() == ENTITLEMENT_KIND_TIME
 
     @staticmethod
     def _datetime_to_legacy_ms(value: datetime | None) -> int | None:

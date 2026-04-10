@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import and_, select
 
-from shared.config.config import FRONTEND_LINK
+from shared.config.config import FRONTEND_TELEGRAM_LINK
 from shared.constants.linking import LINK_TELEGRAM_PURPOSE, LINK_WEB_PURPOSE
 from shared.config.database.session import get_db_session
 from shared.infrastructure.identity_link_service import IdentityLinkService
@@ -134,6 +134,9 @@ class TelegramLinkService:
         )
 
     async def create_web_link(self, *, tg_id: int) -> str | None:
+        if not FRONTEND_TELEGRAM_LINK:
+            return None
+
         async with get_db_session() as session:
             telegram_account = (
                 await session.execute(
@@ -155,7 +158,7 @@ class TelegramLinkService:
             )
             await session.commit()
 
-        return f"{FRONTEND_LINK.rstrip('/')}/auth/login?link_token={raw_token}"
+        return f"{FRONTEND_TELEGRAM_LINK.rstrip('/')}/auth/login?link_token={raw_token}"
 
     async def _merge_web_shell_into_existing_telegram_user(
         self,
@@ -283,7 +286,7 @@ class TelegramLinkService:
             [
                 subscription_state.current_expires_at is not None,
                 subscription_state.trial_activated_at is not None,
-                subscription_state.news_bonus_activated_at is not None,
+                subscription_state.info_channel_activated_at is not None,
             ]
         ):
             return False

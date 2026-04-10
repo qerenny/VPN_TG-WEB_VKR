@@ -10,6 +10,7 @@ from sqlmodel import SQLModel
 from backend.services.account import account_service as account_service_module
 from backend.services.account.account_service import AccountService
 from shared.models import register_models
+from shared.models.access.access_grant_model import AccessGrant
 from shared.models.payments.payment_attempt_model import PaymentAttempt
 from shared.models.payments.payment_order_model import PaymentOrder
 from shared.models.payments.plan_model import Plan
@@ -21,7 +22,7 @@ from shared.models.users.user_profile_model import UserProfile
 from shared.models.users.web_account_model import WebAccount
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.constants.payments import PLAN_KIND_PAID
-from shared.product_constants import ENTITLEMENT_KIND_TIME, PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import ENTITLEMENT_KIND_TIME, PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.timestamp_utils import TimestampUtils
 
 DATABASE_URL = "sqlite+aiosqlite://"
@@ -102,7 +103,7 @@ async def seeded_user(session_factory):
             code="month_1",
             name="1 month",
             kind=PLAN_KIND_PAID,
-            legacy_payload="month_1",
+            payload="month_1",
             scope=PRODUCT_SCOPE_STANDARD,
             entitlement_kind=ENTITLEMENT_KIND_TIME,
             duration_days=30,
@@ -112,12 +113,12 @@ async def seeded_user(session_factory):
             is_active=True,
             metadata_json={},
         )
-        whitelist_plan = Plan(
-            code="whitelist_15gb",
+        traffic_limited_plan = Plan(
+            code="traffic_limited_15gb",
             name="15 GB",
             kind=PLAN_KIND_PAID,
-            legacy_payload="whitelist_15gb",
-            scope=PRODUCT_SCOPE_WHITELIST,
+            payload="traffic_limited_15gb",
+            scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
             entitlement_kind="traffic",
             duration_days=30,
             quota_bytes=15 * 1024 * 1024 * 1024,
@@ -127,7 +128,7 @@ async def seeded_user(session_factory):
             metadata_json={},
         )
         session.add(standard_plan)
-        session.add(whitelist_plan)
+        session.add(traffic_limited_plan)
         await session.flush()
         standard_plan_id = int(standard_plan.id)
 
@@ -136,7 +137,7 @@ async def seeded_user(session_factory):
                 user_id=int(user.id),
                 current_expires_at=now.replace(month=5),
                 trial_activated_at=None,
-                news_bonus_activated_at=None,
+                info_channel_activated_at=None,
                 blocked_at=None,
                 updated_at=now,
                 version=1,
@@ -155,23 +156,23 @@ async def seeded_user(session_factory):
         )
         session.add(standard_client)
         await session.flush()
-        whitelist_client = VpnClient(
+        traffic_limited_client = VpnClient(
             user_id=int(user.id),
-            scope=PRODUCT_SCOPE_WHITELIST,
+            scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
             provider="3x-ui",
-            external_client_uuid="uuid-whitelist",
+            external_client_uuid="uuid-traffic_limited",
             external_email="wl-user@example.com",
-            subscription_external_id="sub-whitelist",
+            subscription_external_id="sub-traffic_limited",
             created_at=now,
             updated_at=now,
             deactivated_at=None,
         )
-        session.add(whitelist_client)
+        session.add(traffic_limited_client)
         await session.flush()
         session.add(
             TrafficState(
-                vpn_client_id=int(whitelist_client.id),
-                scope=PRODUCT_SCOPE_WHITELIST,
+                vpn_client_id=int(traffic_limited_client.id),
+                scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
                 allocated_bytes=15 * 1024 * 1024 * 1024,
                 used_bytes=5 * 1024 * 1024 * 1024,
                 remaining_bytes=10 * 1024 * 1024 * 1024,
@@ -199,13 +200,31 @@ async def seeded_user(session_factory):
         session.add(
             PaymentAttempt(
                 order_id=int(order.id),
-                provider="yookassa",
+                provider="external_card",
                 provider_payment_id="pay_1",
                 provider_status="paid",
                 provider_payload_json={},
                 created_at=now,
                 updated_at=now,
                 paid_at=now,
+            )
+        )
+        session.add(
+            AccessGrant(
+                user_id=int(user.id),
+                granted_by_user_id=None,
+                plan_id=standard_plan_id,
+                template_code="month_1",
+                scope=PRODUCT_SCOPE_STANDARD,
+                entitlement_kind=ENTITLEMENT_KIND_TIME,
+                source_type="request_approval",
+                source_ref="access_request:1",
+                status="active",
+                expires_at=now.replace(month=5),
+                quota_bytes=None,
+                created_at=now,
+                activated_at=now,
+                metadata_json={"approved_template_code": "month_1"},
             )
         )
         await session.commit()
@@ -371,8 +390,8 @@ async def test_get_subscriptions_returns_both_scopes(account_service, seeded_use
 
     assert subscriptions["standard"]["is_active"] is True
     assert subscriptions["standard"]["subscription_import_url"]
-    assert subscriptions["whitelist"]["is_active"] is True
-    assert subscriptions["whitelist"]["traffic_remaining_bytes"] == 10 * 1024 * 1024 * 1024
+    assert subscriptions["traffic_limited"]["is_active"] is True
+    assert subscriptions["traffic_limited"]["traffic_remaining_bytes"] == 10 * 1024 * 1024 * 1024
 
 
 @pytest.mark.asyncio
@@ -401,7 +420,7 @@ async def test_get_subscriptions_hides_import_links_for_inactive_access(session_
                 user_id=int(user.id),
                 current_expires_at=expired,
                 trial_activated_at=None,
-                news_bonus_activated_at=None,
+                info_channel_activated_at=None,
                 blocked_at=None,
                 updated_at=now,
                 version=1,
@@ -426,11 +445,55 @@ async def test_get_payments_returns_user_payment_history(account_service, seeded
 
 
 @pytest.mark.asyncio
-async def test_get_plan_catalog_returns_active_paid_plans(account_service, seeded_user):
+async def test_get_access_grants_returns_user_access_history(account_service, seeded_user):
+    grants = await account_service.get_access_grants(user_id=seeded_user)
+
+    assert len(grants) == 1
+    assert grants[0]["template_code"] == "month_1"
+    assert grants[0]["scope"] == PRODUCT_SCOPE_STANDARD
+    assert grants[0]["source_type"] == "request_approval"
+    assert grants[0]["metadata"]["approved_template_code"] == "month_1"
+
+
+@pytest.mark.asyncio
+async def test_get_plan_catalog_returns_active_paid_plans(account_service, seeded_user, monkeypatch):
+    monkeypatch.setattr(
+        account_service_module,
+        "get_effective_product_feature_settings",
+        lambda: type(
+            "FeatureFlags",
+            (),
+            {
+                "standard_config_enabled": True,
+                "traffic_limited_config_enabled": True,
+            },
+        )(),
+    )
     catalog = await account_service.get_plan_catalog()
 
     assert catalog["standard"]
-    assert catalog["whitelist"]
+    assert catalog["traffic_limited"]
     assert catalog["standard"][0]["scope"] == PRODUCT_SCOPE_STANDARD
-    assert catalog["whitelist"][0]["scope"] == PRODUCT_SCOPE_WHITELIST
-    assert catalog["whitelist"][0]["human_view_traffic_quota"]
+    assert catalog["traffic_limited"][0]["scope"] == PRODUCT_SCOPE_TRAFFIC_LIMITED
+    assert catalog["traffic_limited"][0]["human_view_traffic_quota"]
+
+
+@pytest.mark.asyncio
+async def test_get_plan_catalog_filters_disabled_modules(account_service, seeded_user, monkeypatch):
+    monkeypatch.setattr(
+        account_service_module,
+        "get_effective_product_feature_settings",
+        lambda: type(
+            "FeatureFlags",
+            (),
+            {
+                "standard_config_enabled": False,
+                "traffic_limited_config_enabled": True,
+            },
+        )(),
+    )
+
+    catalog = await account_service.get_plan_catalog()
+
+    assert catalog["standard"] == []
+    assert catalog["traffic_limited"]

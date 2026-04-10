@@ -17,7 +17,7 @@ from shared.models.users.app_user_model import AppUser
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.user_profile_model import UserProfile
 from shared.models.users.web_account_model import WebAccount
-from shared.product_constants import ENTITLEMENT_KIND_TIME, ENTITLEMENT_KIND_TRAFFIC, PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import ENTITLEMENT_KIND_TIME, ENTITLEMENT_KIND_TRAFFIC, PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.timestamp_utils import TimestampUtils
 import backend.services.payments.web_checkout_service as checkout_module
 
@@ -79,7 +79,7 @@ async def seeded_user(session_factory):
                     code="month_1",
                     name="1 month access",
                     kind="paid",
-                    legacy_payload="month1",
+                    payload="month1",
                     scope=PRODUCT_SCOPE_STANDARD,
                     entitlement_kind=ENTITLEMENT_KIND_TIME,
                     duration_days=30,
@@ -90,11 +90,11 @@ async def seeded_user(session_factory):
                     metadata_json={},
                 ),
                 Plan(
-                    code="whitelist_15gb",
+                    code="traffic_limited_15gb",
                     name="Traffic-limited access 15 GB",
                     kind="paid",
-                    legacy_payload="whitelist15gb",
-                    scope=PRODUCT_SCOPE_WHITELIST,
+                    payload="traffic_limited15gb",
+                    scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
                     entitlement_kind=ENTITLEMENT_KIND_TRAFFIC,
                     duration_days=30,
                     quota_bytes=15 * 1024 * 1024 * 1024,
@@ -130,7 +130,7 @@ def checkout_service(session_factory, monkeypatch):
     )
     service = WebCheckoutService(
         payment_repository=repo,
-        gateways={"yookassa": gateway},
+        gateways={"external_card": gateway},
         timestamp=TimestampUtils(),
     )
     return service, repo, gateway
@@ -143,7 +143,7 @@ async def test_create_checkout_builds_standard_order(checkout_service, seeded_us
     result = await service.create_checkout(
         user_id=seeded_user,
         plan_code="month_1",
-        method="yookassa",
+        method="external_card",
         expected_scope="standard",
     )
 
@@ -158,20 +158,20 @@ async def test_create_checkout_builds_standard_order(checkout_service, seeded_us
 
 
 @pytest.mark.asyncio
-async def test_create_checkout_builds_whitelist_order(checkout_service, seeded_user):
+async def test_create_checkout_builds_traffic_limited_order(checkout_service, seeded_user):
     service, repo, gateway = checkout_service
 
     result = await service.create_checkout(
         user_id=seeded_user,
-        plan_code="whitelist_15gb",
-        method="yookassa",
-        expected_scope="whitelist",
+        plan_code="traffic_limited_15gb",
+        method="external_card",
+        expected_scope="traffic_limited",
     )
 
-    assert result.plan_code == "whitelist_15gb"
-    assert result.scope == "whitelist"
+    assert result.plan_code == "traffic_limited_15gb"
+    assert result.scope == "traffic_limited"
     snapshot = repo.create.await_args.args[0]
-    assert snapshot.payload == "whitelist15gb"
+    assert snapshot.payload == "traffic_limited15gb"
 
 
 @pytest.mark.asyncio
@@ -220,7 +220,7 @@ async def test_create_checkout_works_for_telegram_first_user_without_web_account
                 code="month_1",
                 name="1 month access",
                 kind="paid",
-                legacy_payload="month1",
+                payload="month1",
                 scope=PRODUCT_SCOPE_STANDARD,
                 entitlement_kind=ENTITLEMENT_KIND_TIME,
                 duration_days=30,
@@ -247,14 +247,14 @@ async def test_create_checkout_works_for_telegram_first_user_without_web_account
     )
     service = WebCheckoutService(
         payment_repository=repo,
-        gateways={"yookassa": gateway},
+        gateways={"external_card": gateway},
         timestamp=TimestampUtils(),
     )
 
     result = await service.create_checkout(
         user_id=user_id,
         plan_code="month_1",
-        method="yookassa",
+        method="external_card",
         expected_scope="standard",
     )
 

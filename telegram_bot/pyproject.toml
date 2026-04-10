@@ -7,6 +7,7 @@ packages = [{ include = "telegram_bot", from = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+fastapi = "^0.135.3"
 pytelegrambotapi = "^4.15"
 httpx = "^0.27"
 pydantic = "^2.6"
@@ -14,8 +15,6 @@ sqlmodel = "^0.0.16"
 python-dotenv = "^1.0"
 # Local shared dependency
 shared = {path = "../shared", develop = true}
-yookassa = "^3.5.0"
-aiosend = "^2.1.2"
 haikunator = "^2.1.0"
 asyncpg = "^0.30.0"
 psycopg2-binary = "^2.9.10"

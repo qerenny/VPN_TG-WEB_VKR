@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
-from shared.config.settings import RolloutFeatureFlags
-from shared.infrastructure.vpn_topology_sync_service import VpnTopologySyncService
-from shared.scripts.rollout_support import run_async
+from shared.config.settings import RuntimeSyncFlags
+from shared.infrastructure.vpn_topology_service import VpnTopologyService
 
 
 async def main() -> None:
-    service = VpnTopologySyncService(RolloutFeatureFlags(db_dual_write_vpn_topology=True))
+    service = VpnTopologyService(RuntimeSyncFlags(vpn_topology_sync_enabled=True))
     raw_allow_destructive_sync = os.getenv(
-        "APP_ALLOW_TOPOLOGY_DESTRUCTIVE_SYNC",
-        os.getenv("NOWMEOW_ALLOW_TOPOLOGY_DESTRUCTIVE_SYNC", ""),
+        "REMOTE_ACCESS_ALLOW_TOPOLOGY_DESTRUCTIVE_SYNC",
+        "",
     )
     allow_destructive_sync = str(raw_allow_destructive_sync).strip().lower() in {
         "1",
@@ -32,4 +32,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    run_async(main())
+    asyncio.run(main())

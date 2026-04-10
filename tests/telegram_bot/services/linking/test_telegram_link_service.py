@@ -239,6 +239,7 @@ async def test_consume_start_token_merges_empty_web_shell_into_existing_telegram
 async def test_create_web_link_is_stable_for_same_telegram_user(service, session_factory, seeded_user):
     telegram_link_service, _ = service
     now = datetime(2026, 4, 3, 12, 0, tzinfo=timezone.utc)
+    telegram_link_module.FRONTEND_TELEGRAM_LINK = "https://cabinet.example.org"
 
     async with session_factory() as session:
         session.add(
@@ -259,3 +260,27 @@ async def test_create_web_link_is_stable_for_same_telegram_user(service, session
 
     assert first_link is not None
     assert first_link == second_link
+    assert first_link.startswith("https://cabinet.example.org/auth/login?link_token=")
+
+
+@pytest.mark.asyncio
+async def test_create_web_link_returns_none_without_public_telegram_frontend(service, session_factory, seeded_user):
+    telegram_link_service, _ = service
+    now = datetime(2026, 4, 3, 12, 0, tzinfo=timezone.utc)
+    telegram_link_module.FRONTEND_TELEGRAM_LINK = ""
+
+    async with session_factory() as session:
+        session.add(
+            TelegramAccount(
+                user_id=seeded_user,
+                telegram_id=778,
+                username="cat",
+                linked_at=now,
+                first_seen_at=now,
+                last_seen_at=now,
+                revoked_at=None,
+            )
+        )
+        await session.commit()
+
+    assert await telegram_link_service.create_web_link(tg_id=778) is None

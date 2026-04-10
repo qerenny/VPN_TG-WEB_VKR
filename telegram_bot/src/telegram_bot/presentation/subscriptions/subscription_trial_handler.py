@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 from telebot.types import CallbackQuery
 
-from shared.product_constants import PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.presentation.start.start_handler import StartHandler
@@ -14,8 +14,8 @@ from telegram_bot.services.subscriptions.subscription_provisioning_service impor
 from telegram_bot.services.subscriptions.subscription_flow_service import (
     SubscriptionFlowService,
 )
-from telegram_bot.services.subscriptions.whitelist_traffic_service import (
-    WhiteListTrafficService,
+from telegram_bot.services.subscriptions.traffic_limited_service import (
+    TrafficLimitedService,
 )
 from telegram_bot.services.users.user_subscription_info_service import UserSubscriptionInfoService
 from telegram_bot.shared.keyboards import build_profile_navigation_markup
@@ -33,14 +33,14 @@ class SubscriptionTrialHandler:
         user_subscription_info_service: UserSubscriptionInfoService,
         start_handler: StartHandler,
         telegram_link_service: TelegramLinkService,
-        whitelist_traffic_service: WhiteListTrafficService | None = None,
+        traffic_limited_service: TrafficLimitedService | None = None,
         subscription_service: SubscriptionProvisioningService | None = None,
     ):
         self.subscription_flow_service = subscription_flow_service
         self.user_subscription_info_service = user_subscription_info_service
         self.start_handler = start_handler
         self.telegram_link_service = telegram_link_service
-        self.whitelist_traffic_service = whitelist_traffic_service
+        self.traffic_limited_service = traffic_limited_service
         self.subscription_service = subscription_service
 
     async def grant_trial(self, call: CallbackQuery) -> None:
@@ -68,19 +68,19 @@ class SubscriptionTrialHandler:
         finally:
             await dismiss_loading_message(tg_id, loading_message_id, bot_client=bot)
 
-    async def grant_whitelist_trial(self, call: CallbackQuery) -> None:
-        if self.whitelist_traffic_service is None:
-            raise RuntimeError("WhiteList trial flow is not configured")
+    async def grant_traffic_limited_trial(self, call: CallbackQuery) -> None:
+        if self.traffic_limited_service is None:
+            raise RuntimeError("TrafficLimited trial flow is not configured")
 
         tg_id = int(call.message.chat.id)
         loading_message_id = await send_loading_message(tg_id, bot_client=bot)
         try:
-            result = await self.whitelist_traffic_service.activate_trial(tg_id=tg_id)
+            result = await self.traffic_limited_service.activate_trial(tg_id=tg_id)
             if result.was_created:
                 granted_gb = int(result.granted_bytes // (1024 * 1024 * 1024))
                 expires_at_view = self._format_datetime(result.expires_at)
                 text = (
-                    f"{messages.get_random_message('subscription_whitelist_trial')}\n\n"
+                    f"{messages.get_random_message('subscription_traffic_limited_trial')}\n\n"
                     f"*Трафик:* `{granted_gb} GB`\n"
                     f"*Действует до:* `{expires_at_view}`"
                 )
@@ -92,14 +92,14 @@ class SubscriptionTrialHandler:
                     reply_markup=build_profile_navigation_markup(cabinet_url=cabinet_url) if cabinet_url else None,
                 )
                 await self.start_handler.send_main_menu(call.message)
-                logger.info(f"Granted whitelist trial for tg_id={tg_id}")
+                logger.info(f"Granted traffic_limited trial for tg_id={tg_id}")
                 return
 
             await bot.send_message(
                 chat_id=tg_id,
-                text=messages.get_random_message("subscription_whitelist_trial_is_used"),
+                text=messages.get_random_message("subscription_traffic_limited_trial_is_used"),
             )
-            logger.info(f"Whitelist trial already used for tg_id={tg_id}")
+            logger.info(f"TrafficLimited trial already used for tg_id={tg_id}")
         finally:
             await dismiss_loading_message(tg_id, loading_message_id, bot_client=bot)
 

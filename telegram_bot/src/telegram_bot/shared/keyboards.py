@@ -1,13 +1,14 @@
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from shared.config.config import BOT_NEWS_TG_LINK
-from shared.config.settings import get_product_feature_settings
+from shared.config.config import BOT_INFO_CHANNEL_ENABLED, BOT_INFO_CHANNEL_TG_LINK
+from shared.config.settings import get_effective_product_feature_settings
 from telegram_bot.shared.config.navigation import (
+    DOCS_MENU_ENABLED,
     FRONT_PROFILE,
     HELP,
     INSTRUCTIONS,
     MAIN_MENU,
-    NEWS_CHANNEL,
+    INFO_CHANNEL,
     OPEN_CABINET,
     REFERRALS,
     SUBSCRIPTIONS,
@@ -35,7 +36,7 @@ def build_main_menu_markup(
     referrals_enabled: bool | None = None,
 ) -> InlineKeyboardMarkup:
     if referrals_enabled is None:
-        referrals_enabled = get_product_feature_settings().referrals_enabled
+        referrals_enabled = get_effective_product_feature_settings().referrals_enabled
 
     markup = InlineKeyboardMarkup()
     if cabinet_url:
@@ -43,12 +44,17 @@ def build_main_menu_markup(
     markup.add(InlineKeyboardButton(SUBSCRIPTIONS, callback_data="profile_subscriptions"))
     if referrals_enabled:
         markup.add(InlineKeyboardButton(REFERRALS, callback_data="referrals_menu"))
-    markup.add(
-        InlineKeyboardButton(WHO_WE_ARE, url=WHO_WE_ARE_LINK),
-        InlineKeyboardButton(NEWS_CHANNEL, url=BOT_NEWS_TG_LINK),
-    )
-    markup.add(
-        InlineKeyboardButton(HELP, callback_data="menu_help"),
-        InlineKeyboardButton(INSTRUCTIONS, callback_data="menu_instructions"),
-    )
+
+    info_links: list[InlineKeyboardButton] = []
+    if WHO_WE_ARE_LINK:
+        info_links.append(InlineKeyboardButton(WHO_WE_ARE, url=WHO_WE_ARE_LINK))
+    if BOT_INFO_CHANNEL_ENABLED:
+        info_links.append(InlineKeyboardButton(INFO_CHANNEL, url=BOT_INFO_CHANNEL_TG_LINK))
+    if info_links:
+        markup.add(*info_links)
+
+    action_buttons = [InlineKeyboardButton(HELP, callback_data="menu_help")]
+    if DOCS_MENU_ENABLED:
+        action_buttons.append(InlineKeyboardButton(INSTRUCTIONS, callback_data="menu_instructions"))
+    markup.add(*action_buttons)
     return markup

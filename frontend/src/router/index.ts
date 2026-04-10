@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import UserInfo from '../components/UserInfo.vue'
 import Home from '../components/Home.vue'
-import ProxyAccess from '../components/ProxyAccess.vue'
 import AdminPanel from '../components/AdminPanel.vue'
 import NotFound from '../components/NotFound.vue'
 import AuthLoginPage from '../components/auth/AuthLoginPage.vue'
@@ -29,16 +28,10 @@ const routes = [
     props: true
   },
   {
-    path: '/subscription/whitelist/:token',
-    name: 'WhiteListUserInfo',
+    path: '/subscription/traffic-limited/:token',
+    name: 'TrafficLimitedUserInfo',
     component: UserInfo,
     props: true
-  },
-  {
-    path: '/proxy',
-    alias: ['/proxy/'],
-    name: 'ProxyAccess',
-    component: ProxyAccess
   },
   {
     path: '/demo-payment',

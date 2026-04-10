@@ -3,6 +3,9 @@
 
 def register_models() -> None:
     """Import model modules so SQLModel metadata is populated."""
+    from shared.models.access.access_grant_model import AccessGrant  # noqa: F401
+    from shared.models.access.access_registry_entry_model import AccessRegistryEntry  # noqa: F401
+    from shared.models.access.access_request_model import AccessRequest  # noqa: F401
     from shared.models.growth.promo_code_model import PromoCode  # noqa: F401
     from shared.models.growth.promo_redemption_model import PromoRedemption  # noqa: F401
     from shared.models.growth.referral_edge_model import ReferralEdge  # noqa: F401

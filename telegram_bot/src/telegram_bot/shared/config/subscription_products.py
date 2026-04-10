@@ -6,16 +6,16 @@ from shared.product_constants import (
     ENTITLEMENT_KIND_TIME,
     ENTITLEMENT_KIND_TRAFFIC,
     PRODUCT_SCOPE_STANDARD,
-    PRODUCT_SCOPE_WHITELIST,
+    PRODUCT_SCOPE_TRAFFIC_LIMITED,
 )
 from shared.constants.payments import (
-    SUBSCRIPTION_PAYLOAD_NEWS_BONUS_4D,
+    SUBSCRIPTION_PAYLOAD_INFO_CHANNEL_BONUS_4D,
     SUBSCRIPTION_PAYLOAD_TRIAL_3D,
 )
-from shared.infrastructure.payment_plan_catalog import PlanSeed, get_plan_seed_by_legacy_payload
+from shared.infrastructure.payment_plan_catalog import PlanSeed, get_plan_seed_by_payload
 
 TRIAL = "3 дня (пробный доступ)"
-WHITELIST_TRIAL = "2 GB (пробная конфигурация)"
+TRAFFIC_LIMITED_TRIAL = "2 GB (пробная конфигурация)"
 
 
 def _amount_to_cents(amount: Decimal | None) -> int:
@@ -44,11 +44,11 @@ def _standard_description(months: int) -> str:
     return f"Базовая конфигурация на {months} {'месяц' if months == 1 else 'месяца' if months < 5 else 'месяцев'}."
 
 
-def _whitelist_label(seed: PlanSeed, *, icon: str) -> str:
+def _traffic_limited_label(seed: PlanSeed, *, icon: str) -> str:
     return f"{icon} {_quota_to_gb(seed.quota_bytes)} GB - {_format_rub_price(seed.price_amount)}"
 
 
-def _whitelist_description(seed: PlanSeed) -> str:
+def _traffic_limited_description(seed: PlanSeed) -> str:
     return (
         f"Конфигурация с лимитом {_quota_to_gb(seed.quota_bytes)} GB трафика "
         f"на {seed.duration_days} дней."
@@ -61,22 +61,22 @@ def _build_product(
     label: str,
     description: str,
 ) -> dict[str, int | str]:
-    seed = get_plan_seed_by_legacy_payload(payload)
+    seed = get_plan_seed_by_payload(payload)
     if seed is None:
         raise ValueError(f"Unknown payment payload: {payload}")
     return {
         "label": label,
         "amount": _amount_to_cents(seed.price_amount),
         "description": description,
-        "payload": seed.legacy_payload,
+        "payload": seed.payload,
     }
 
 
 DAY_3_TIMESTAMP = SUBSCRIPTION_PAYLOAD_TRIAL_3D
-DAY_4_TIMESTAMP = SUBSCRIPTION_PAYLOAD_NEWS_BONUS_4D
+INFO_CHANNEL_BONUS_TIMESTAMP = SUBSCRIPTION_PAYLOAD_INFO_CHANNEL_BONUS_4D
 
 def _build_standard_product(payload: str, *, icon: str, months: int) -> dict[str, int | str]:
-    seed = get_plan_seed_by_legacy_payload(payload)
+    seed = get_plan_seed_by_payload(payload)
     if seed is None or seed.scope != PRODUCT_SCOPE_STANDARD or seed.entitlement_kind != ENTITLEMENT_KIND_TIME:
         raise ValueError(f"Unexpected standard plan payload: {payload}")
     return _build_product(
@@ -86,25 +86,25 @@ def _build_standard_product(payload: str, *, icon: str, months: int) -> dict[str
     )
 
 
-def _build_whitelist_product(payload: str, *, icon: str) -> dict[str, int | str]:
-    seed = get_plan_seed_by_legacy_payload(payload)
-    if seed is None or seed.scope != PRODUCT_SCOPE_WHITELIST or seed.entitlement_kind != ENTITLEMENT_KIND_TRAFFIC:
+def _build_traffic_limited_product(payload: str, *, icon: str) -> dict[str, int | str]:
+    seed = get_plan_seed_by_payload(payload)
+    if seed is None or seed.scope != PRODUCT_SCOPE_TRAFFIC_LIMITED or seed.entitlement_kind != ENTITLEMENT_KIND_TRAFFIC:
         raise ValueError(f"Unexpected traffic-limited plan payload: {payload}")
     return _build_product(
         payload,
-        label=_whitelist_label(seed, icon=icon),
-        description=_whitelist_description(seed),
+        label=_traffic_limited_label(seed, icon=icon),
+        description=_traffic_limited_description(seed),
     )
 
 
-MONTH1 = _build_standard_product("month1", icon="🔐", months=1)
+MONTH1 = _build_standard_product("month1", icon="🔑", months=1)
 MONTH3 = _build_standard_product("month3", icon="🛡️", months=3)
-MONTH6 = _build_standard_product("month6", icon="💻", months=6)
-YEAR1 = _build_standard_product("year1", icon="🎉", months=12)
+MONTH6 = _build_standard_product("month6", icon="⭐", months=6)
+YEAR1 = _build_standard_product("year1", icon="👑", months=12)
 
-WHITELIST15GB = _build_whitelist_product("whitelist15gb", icon="🛰")
-WHITELIST35GB = _build_whitelist_product("whitelist35gb", icon="🧭")
-WHITELIST80GB = _build_whitelist_product("whitelist80gb", icon="🚀")
+TRAFFIC_LIMITED15GB = _build_traffic_limited_product("traffic_limited15gb", icon="📦")
+TRAFFIC_LIMITED35GB = _build_traffic_limited_product("traffic_limited35gb", icon="📦")
+TRAFFIC_LIMITED80GB = _build_traffic_limited_product("traffic_limited80gb", icon="📦")
 
 SUBSCRIPTION_PRODUCTS = {
     "month1": MONTH1,
@@ -113,13 +113,13 @@ SUBSCRIPTION_PRODUCTS = {
     "year1": YEAR1,
 }
 
-WHITELIST_PRODUCTS = {
-    "whitelist15gb": WHITELIST15GB,
-    "whitelist35gb": WHITELIST35GB,
-    "whitelist80gb": WHITELIST80GB,
+TRAFFIC_LIMITED_PRODUCTS = {
+    "traffic_limited15gb": TRAFFIC_LIMITED15GB,
+    "traffic_limited35gb": TRAFFIC_LIMITED35GB,
+    "traffic_limited80gb": TRAFFIC_LIMITED80GB,
 }
 
 ALL_PAYMENT_PRODUCTS = {
     **SUBSCRIPTION_PRODUCTS,
-    **WHITELIST_PRODUCTS,
+    **TRAFFIC_LIMITED_PRODUCTS,
 }

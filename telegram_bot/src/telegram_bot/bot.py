@@ -1,7 +1,5 @@
 import asyncio
 from functools import wraps
-import os
-from urllib.parse import urlparse
 
 from telebot import apihelper, asyncio_helper
 from telebot.apihelper import ApiTelegramException
@@ -22,7 +20,6 @@ TELEGRAM_API_CONNECT_TIMEOUT_SECONDS = 20
 TELEGRAM_API_REQUEST_TIMEOUT_SECONDS = 60
 TELEGRAM_API_TRANSIENT_RETRIES = 2
 TELEGRAM_API_TRANSIENT_RETRY_DELAY_SECONDS = 1
-SUPPORTED_TELEGRAM_PROXY_SCHEMES = {"http", "https"}
 CALLBACK_QUERY_EXPIRED_ERROR_MARKERS = (
     "query is too old",
     "query id is invalid",
@@ -107,40 +104,6 @@ def _configure_telegram_api_timeouts() -> None:
     asyncio_helper.CONNECT_TIMEOUT = TELEGRAM_API_CONNECT_TIMEOUT_SECONDS
     asyncio_helper.READ_TIMEOUT = TELEGRAM_API_REQUEST_TIMEOUT_SECONDS
     asyncio_helper.REQUEST_TIMEOUT = TELEGRAM_API_REQUEST_TIMEOUT_SECONDS
-
-
-def _set_telegram_proxy(raw_proxy: str | None, *, log_reason: str | None = None) -> None:
-    if not raw_proxy:
-        asyncio_helper.proxy = None
-        apihelper.proxy = None
-        if log_reason:
-            logger.warning(log_reason)
-        return
-
-    scheme = urlparse(raw_proxy).scheme.lower()
-    if scheme not in SUPPORTED_TELEGRAM_PROXY_SCHEMES:
-        raise ValueError(
-            "Unsupported TELEGRAM_PROXY_URL scheme. Use http://... or https://... . "
-            "Direct vless:// links are not supported by the Telegram aiohttp client; "
-            "expose an HTTP proxy inbound on your Xray host and point TELEGRAM_PROXY_URL to it."
-        )
-
-    asyncio_helper.proxy = raw_proxy
-    apihelper.proxy = raw_proxy
-    if log_reason:
-        logger.warning(log_reason)
-    else:
-        logger.info("Telegram API proxy is configured.")
-
-
-def get_configured_telegram_proxy() -> str:
-    return os.getenv("TELEGRAM_PROXY_URL", "").strip()
-
-
-def _configure_telegram_proxy() -> None:
-    _set_telegram_proxy(get_configured_telegram_proxy() or None)
-
-
 def _is_expired_callback_query_error(error: ApiTelegramException) -> bool:
     description = str(getattr(error, "description", "")).lower()
     return error.error_code == 400 and any(
@@ -236,7 +199,8 @@ def _wrap_answer_callback_query(bot_instance: AsyncTeleBot) -> None:
 def build_bot() -> AsyncTeleBot:
     logger.info("Building new Telegram Bot instance...")
     _configure_telegram_api_timeouts()
-    _configure_telegram_proxy()
+    asyncio_helper.proxy = None
+    apihelper.proxy = None
     bot_instance = AsyncTeleBot(BOT_API)
     for method_name in ("send_message", "send_photo", "edit_message_media"):
         _wrap_transient_retry(bot_instance, method_name)

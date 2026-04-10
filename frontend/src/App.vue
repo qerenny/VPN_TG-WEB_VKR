@@ -300,8 +300,8 @@ select {
   --cabinet-soft: #7b91ab;
   --cabinet-standard: #f5a04e;
   --cabinet-standard-2: #f07e4a;
-  --cabinet-whitelist: #4d8fd6;
-  --cabinet-whitelist-2: #3ebfb0;
+  --cabinet-traffic_limited: #4d8fd6;
+  --cabinet-traffic_limited-2: #3ebfb0;
   --cabinet-ok: #3da866;
   --cabinet-danger: #d65858;
   width: min(1260px, 100%);
@@ -389,7 +389,7 @@ select {
 /* ── Typography ── */
 .cabinet-kicker {
   margin: 0;
-  color: var(--cabinet-whitelist);
+  color: var(--cabinet-traffic_limited);
   font: 700 12px/1.2 var(--font-ui);
   letter-spacing: 0.14em;
   text-transform: uppercase;

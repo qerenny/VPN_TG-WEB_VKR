@@ -44,11 +44,12 @@ class ProfileHandler:
         logger.info(f"Profile menu shown for tg_id={chat_id}.")
 
     def _build_caption(self, *, cabinet_available: bool) -> str:
-        cabinet_text = "Открой кабинет, чтобы управлять профилем, подписками, платежами и привязками."
         if not cabinet_available:
-            cabinet_text = "Кабинет будет доступен после подготовки web-ссылки."
+            return (
+                "*👤 Профиль*\n\n"
+                "Кабинет готовится — скоро появится ссылка для входа."
+            )
         return (
-            "*Профиль доступа*\n\n"
-            f"{cabinet_text}\n\n"
-            "Все действия с доступом теперь собраны в web-кабинете."
+            "*👤 Профиль*\n\n"
+            "Управляй доступом, заявками и настройками в кабинете."
         )

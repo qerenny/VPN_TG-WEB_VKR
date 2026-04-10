@@ -19,7 +19,7 @@ from shared.models import register_models as register_models
 from shared.utils.async_redis_client import AsyncRedisClient
 
 
-INTEGRATION_ENABLED = os.getenv("APP_RUN_INTEGRATION") == "1"
+INTEGRATION_ENABLED = os.getenv("REMOTE_ACCESS_RUN_INTEGRATION") == "1"
 
 ACTIVE_SCHEMA_TABLE_NAMES = (
     "admin_audit_log",
@@ -59,9 +59,9 @@ def _active_schema_tables():
 
 def _assert_safe_integration_target() -> None:
     config_path = str(CONFIG_PATH)
-    if not config_path.endswith("tests/integration/env.ci.yaml"):
+    if not config_path.endswith("tests/integration/.env.ci"):
         raise RuntimeError(
-            "Integration tests require APP_CONFIG_PATH=<repo>/tests/integration/env.ci.yaml "
+            "Integration tests require REMOTE_ACCESS_CONFIG_PATH=<repo>/tests/integration/.env.ci "
             f"to avoid mutating the default database. Current config: {config_path}"
         )
     if DB_NAME == "remote_access" or "integration" not in DB_NAME:
@@ -143,7 +143,7 @@ def pytest_collection_modifyitems(config, items):
         return
 
     reason = (
-        "integration tests are disabled; set APP_RUN_INTEGRATION=1"
+        "integration tests are disabled; set REMOTE_ACCESS_RUN_INTEGRATION=1"
         if not INTEGRATION_ENABLED
         else "fastapi.testclient is not installed"
     )
@@ -184,7 +184,7 @@ async def clean_integration_state():
 @pytest.fixture
 def client():
     if not INTEGRATION_ENABLED:
-        pytest.skip("integration tests are disabled; set APP_RUN_INTEGRATION=1")
+        pytest.skip("integration tests are disabled; set REMOTE_ACCESS_RUN_INTEGRATION=1")
     try:
         from fastapi.testclient import TestClient
     except ModuleNotFoundError as err:
@@ -198,7 +198,7 @@ def client():
 @pytest_asyncio.fixture
 async def redis_client():
     if not INTEGRATION_ENABLED:
-        pytest.skip("integration tests are disabled; set APP_RUN_INTEGRATION=1")
+        pytest.skip("integration tests are disabled; set REMOTE_ACCESS_RUN_INTEGRATION=1")
     client = AsyncRedisClient(REDIS_URL)
     await client.ping()
     yield client

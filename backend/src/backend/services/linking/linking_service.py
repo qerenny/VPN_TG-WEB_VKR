@@ -324,7 +324,7 @@ class LinkingService:
             [
                 subscription_state.current_expires_at is not None,
                 subscription_state.trial_activated_at is not None,
-                subscription_state.news_bonus_activated_at is not None,
+                subscription_state.info_channel_activated_at is not None,
             ]
         ):
             return False

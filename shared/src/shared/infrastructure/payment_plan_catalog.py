@@ -10,14 +10,14 @@ from shared.product_constants import (
     ENTITLEMENT_KIND_TIME,
     ENTITLEMENT_KIND_TRAFFIC,
     PRODUCT_SCOPE_STANDARD,
-    PRODUCT_SCOPE_WHITELIST,
+    PRODUCT_SCOPE_TRAFFIC_LIMITED,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class PlanSeed:
     code: str
-    legacy_payload: str
+    payload: str
     name: str
     kind: str
     scope: str
@@ -32,7 +32,7 @@ class PlanSeed:
 DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
     PlanSeed(
         code="trial_3d",
-        legacy_payload="day3",
+        payload="day3",
         name="Trial 3 days",
         kind=PLAN_KIND_TRIAL,
         scope=PRODUCT_SCOPE_STANDARD,
@@ -43,9 +43,9 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
         currency=None,
     ),
     PlanSeed(
-        code="news_bonus_4d",
-        legacy_payload="day4",
-        name="News bonus 4 days",
+        code="info_channel_bonus_4d",
+        payload="day4",
+        name="Informational channel bonus 4 days",
         kind=PLAN_KIND_BONUS,
         scope=PRODUCT_SCOPE_STANDARD,
         entitlement_kind=ENTITLEMENT_KIND_TIME,
@@ -56,7 +56,7 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
     ),
     PlanSeed(
         code="month_1",
-        legacy_payload="month1",
+        payload="month1",
         name="1 month access",
         kind=PLAN_KIND_PAID,
         scope=PRODUCT_SCOPE_STANDARD,
@@ -68,7 +68,7 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
     ),
     PlanSeed(
         code="month_3",
-        legacy_payload="month3",
+        payload="month3",
         name="3 months access",
         kind=PLAN_KIND_PAID,
         scope=PRODUCT_SCOPE_STANDARD,
@@ -80,7 +80,7 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
     ),
     PlanSeed(
         code="month_6",
-        legacy_payload="month6",
+        payload="month6",
         name="6 months access",
         kind=PLAN_KIND_PAID,
         scope=PRODUCT_SCOPE_STANDARD,
@@ -92,7 +92,7 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
     ),
     PlanSeed(
         code="year_1",
-        legacy_payload="year1",
+        payload="year1",
         name="12 months access",
         kind=PLAN_KIND_PAID,
         scope=PRODUCT_SCOPE_STANDARD,
@@ -103,11 +103,11 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
         currency="RUB",
     ),
     PlanSeed(
-        code="whitelist_trial_2gb",
-        legacy_payload="whitelist_trial_2gb",
+        code="traffic_limited_trial_2gb",
+        payload="traffic_limited_trial_2gb",
         name="Traffic-limited trial 2 GB",
         kind=PLAN_KIND_TRIAL,
-        scope=PRODUCT_SCOPE_WHITELIST,
+        scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
         entitlement_kind=ENTITLEMENT_KIND_TRAFFIC,
         duration_days=3,
         quota_bytes=2 * 1024 * 1024 * 1024,
@@ -116,11 +116,11 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
         is_active=False,
     ),
     PlanSeed(
-        code="whitelist_15gb",
-        legacy_payload="whitelist15gb",
+        code="traffic_limited_15gb",
+        payload="traffic_limited15gb",
         name="Traffic-limited access 15 GB",
         kind=PLAN_KIND_PAID,
-        scope=PRODUCT_SCOPE_WHITELIST,
+        scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
         entitlement_kind=ENTITLEMENT_KIND_TRAFFIC,
         duration_days=30,
         quota_bytes=15 * 1024 * 1024 * 1024,
@@ -129,11 +129,11 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
         is_active=True,
     ),
     PlanSeed(
-        code="whitelist_35gb",
-        legacy_payload="whitelist35gb",
+        code="traffic_limited_35gb",
+        payload="traffic_limited35gb",
         name="Traffic-limited access 35 GB",
         kind=PLAN_KIND_PAID,
-        scope=PRODUCT_SCOPE_WHITELIST,
+        scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
         entitlement_kind=ENTITLEMENT_KIND_TRAFFIC,
         duration_days=45,
         quota_bytes=35 * 1024 * 1024 * 1024,
@@ -142,11 +142,11 @@ DEFAULT_PLAN_SEEDS: tuple[PlanSeed, ...] = (
         is_active=True,
     ),
     PlanSeed(
-        code="whitelist_80gb",
-        legacy_payload="whitelist80gb",
+        code="traffic_limited_80gb",
+        payload="traffic_limited80gb",
         name="Traffic-limited access 80 GB",
         kind=PLAN_KIND_PAID,
-        scope=PRODUCT_SCOPE_WHITELIST,
+        scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
         entitlement_kind=ENTITLEMENT_KIND_TRAFFIC,
         duration_days=60,
         quota_bytes=80 * 1024 * 1024 * 1024,
@@ -172,7 +172,7 @@ def _int_or_none(value) -> int | None:
 def _plan_seed_from_mapping(raw: dict) -> PlanSeed:
     return PlanSeed(
         code=str(raw["code"]).strip().lower(),
-        legacy_payload=str(raw.get("legacy_payload", raw["code"])).strip().lower(),
+        payload=str(raw.get("payload", raw["code"])).strip().lower(),
         name=str(raw["name"]).strip(),
         kind=str(raw.get("kind", PLAN_KIND_PAID)).strip().lower(),
         scope=str(raw.get("scope", PRODUCT_SCOPE_STANDARD)).strip().lower(),
@@ -202,10 +202,10 @@ def _load_plan_seeds() -> tuple[PlanSeed, ...]:
     return tuple(seeds) or DEFAULT_PLAN_SEEDS
 
 
-def get_plan_seed_by_legacy_payload(legacy_payload: str) -> PlanSeed | None:
-    normalized = str(legacy_payload).strip().lower()
+def get_plan_seed_by_payload(payload: str) -> PlanSeed | None:
+    normalized = str(payload).strip().lower()
     return {
-        seed.legacy_payload: seed
+        seed.payload: seed
         for seed in _load_plan_seeds()
     }.get(normalized)
 

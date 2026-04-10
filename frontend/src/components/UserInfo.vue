@@ -6,7 +6,7 @@ import { fetchUserInfo } from '../api/user'
 import { useToast } from 'vue-toastification'
 
 interface UserData {
-  scope: 'standard' | 'whitelist'
+  scope: 'standard' | 'traffic_limited'
   sub_is_active: boolean
   sub_link: string
   support_link?: string
@@ -55,7 +55,7 @@ const currentDeviceKey = ref<string | null>(null)
 const quickStartRef = ref<HTMLElement | null>(null)
 const instructionRefs = ref<Record<string, HTMLDetailsElement | null>>({})
 const instructionsListRef = ref<HTMLElement | null>(null)
-const isWhitelistScope = computed(() => route.path.includes('/subscription/whitelist/'))
+const isTrafficLimitedScope = computed(() => route.path.includes('/subscription/traffic-limited/'))
 
 const normalizeTelegramLink = (value?: string) => {
   const normalizedValue = value?.trim()
@@ -78,12 +78,17 @@ const supportLink = computed(() =>
   normalizeTelegramLink(userData.value?.support_link || publicConfig.value?.support_link),
 )
 
+const normalizeOptionalUrl = (value?: string | null) => {
+  const normalizedValue = value?.trim() || ''
+  return normalizedValue === '#' ? '' : normalizedValue
+}
+
 const buildHappImportLink = (subLink?: string | null) => {
-  const addLink = publicConfig.value?.subscription_add_links?.happ?.trim() || ''
-  const normalizedSubLink = subLink?.trim() || ''
+  const addLink = normalizeOptionalUrl(publicConfig.value?.subscription_add_links?.happ)
+  const normalizedSubLink = normalizeOptionalUrl(subLink)
 
   if (!addLink || !normalizedSubLink) {
-    return '#'
+    return ''
   }
 
   return `${addLink}${normalizedSubLink}`
@@ -108,7 +113,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
           type: 'link',
           icon: 'download',
           label: 'Скачать в App Store',
-          href: () => appLinks.happ_ios || '#',
+          href: () => normalizeOptionalUrl(appLinks.happ_ios),
         },
         {
           type: 'link',
@@ -122,7 +127,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
         'После установки нажмите «Добавить подписку».',
         'Убедитесь, что подписка появилась в приложении.',
       ],
-      detailsLink: instructionLinks.ios,
+      detailsLink: normalizeOptionalUrl(instructionLinks.ios),
     },
     {
       key: 'android',
@@ -134,7 +139,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
           type: 'link',
           icon: 'download',
           label: 'Скачать в Play Market',
-          href: () => appLinks.happ_android || '#',
+          href: () => normalizeOptionalUrl(appLinks.happ_android),
         },
         {
           type: 'link',
@@ -148,7 +153,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
         'После установки нажмите «Добавить подписку».',
         'Убедитесь, что подписка появилась в приложении.',
       ],
-      detailsLink: instructionLinks.android,
+      detailsLink: normalizeOptionalUrl(instructionLinks.android),
     },
     {
       key: 'windows',
@@ -160,7 +165,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
           type: 'link',
           icon: 'download',
           label: 'Скачать с оф. сайта',
-          href: () => appLinks.happ_windows || '#',
+          href: () => normalizeOptionalUrl(appLinks.happ_windows),
         },
         {
           type: 'link',
@@ -174,7 +179,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
         'Установите его на устройство.',
         'Нажмите «Добавить подписку» после установки.',
       ],
-      detailsLink: instructionLinks.windows,
+      detailsLink: normalizeOptionalUrl(instructionLinks.windows),
     },
     {
       key: 'windows-nekoray',
@@ -185,13 +190,13 @@ const instructionSections = computed<InstructionSection[]>(() => {
           type: 'link',
           icon: 'arrow_outward',
           label: 'Подробная инструкция',
-          href: () => instructionLinks.windows_nekoray || '#',
+          href: () => normalizeOptionalUrl(instructionLinks.windows_nekoray),
         },
         {
           type: 'link',
           icon: 'download',
           label: 'Скачать с GitHub',
-          href: () => appLinks.windows_nekoray || '#',
+          href: () => normalizeOptionalUrl(appLinks.windows_nekoray),
         },
         {
           type: 'copy',
@@ -214,7 +219,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
           type: 'link',
           icon: 'download',
           label: 'Скачать в App Store',
-          href: () => appLinks.happ_macos || '#',
+          href: () => normalizeOptionalUrl(appLinks.happ_macos),
         },
         {
           type: 'link',
@@ -228,7 +233,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
         'После установки нажмите «Добавить подписку».',
         'Убедитесь, что подписка появилась в приложении.',
       ],
-      detailsLink: instructionLinks.macos,
+      detailsLink: normalizeOptionalUrl(instructionLinks.macos),
     },
     {
       key: 'linux',
@@ -240,7 +245,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
           type: 'link',
           icon: 'download',
           label: 'Скачать с оф. сайта',
-          href: () => appLinks.happ_linux || '#',
+          href: () => normalizeOptionalUrl(appLinks.happ_linux),
         },
         {
           type: 'link',
@@ -254,7 +259,7 @@ const instructionSections = computed<InstructionSection[]>(() => {
         'При необходимости выберите подходящий пакет для вашей системы.',
         'Нажмите «Добавить подписку» после установки.',
       ],
-      detailsLink: instructionLinks.linux,
+      detailsLink: normalizeOptionalUrl(instructionLinks.linux),
     },
     {
       key: 'manual',
@@ -276,20 +281,29 @@ const instructionSections = computed<InstructionSection[]>(() => {
   ]
 })
 
+const getVisibleInstructionActions = (section: InstructionSection, user: UserData) =>
+  section.actions.filter((action) => action.type !== 'link' || Boolean(action.href(user)))
+
 const preferredDeviceSection = computed(
   () => instructionSections.value.find((section) => section.key === currentDeviceKey.value) ?? null,
 )
 
 const quickStartSection = computed(() => preferredDeviceSection.value ?? instructionSections.value[0])
 
-const quickStartActions = computed(() => quickStartSection.value.actions.slice(0, 2))
+const quickStartActions = computed(() => {
+  const user = userData.value
+  if (!user) {
+    return []
+  }
+  return getVisibleInstructionActions(quickStartSection.value, user).slice(0, 2)
+})
 
 const productTag = computed(() =>
-  isWhitelistScope.value ? 'Конфигурация с лимитом трафика' : 'Конфигурация доступа',
+  isTrafficLimitedScope.value ? 'Конфигурация с лимитом трафика' : 'Конфигурация доступа',
 )
 
 const statusTitle = computed(() => {
-  if (isWhitelistScope.value) {
+  if (isTrafficLimitedScope.value) {
     return userData.value?.sub_is_active
       ? 'Конфигурация с лимитом трафика активна и готова к подключению'
       : 'Конфигурация с лимитом трафика сейчас неактивна'
@@ -301,7 +315,7 @@ const statusTitle = computed(() => {
 })
 
 const statusLead = computed(() => {
-  if (isWhitelistScope.value) {
+  if (isTrafficLimitedScope.value) {
     return userData.value?.sub_is_active
       ? 'Импортируйте ссылку в приложение и следите за остатком трафика.'
       : 'Лимит трафика закончился или срок действия истек. Напишите в поддержку, если доступ должен быть активен.'
@@ -313,37 +327,37 @@ const statusLead = computed(() => {
 })
 
 const primaryStatusLabel = computed(() =>
-  isWhitelistScope.value ? 'Осталось трафика' : 'Осталось',
+  isTrafficLimitedScope.value ? 'Осталось трафика' : 'Осталось',
 )
 
 const primaryStatusValue = computed(() =>
-  isWhitelistScope.value
+  isTrafficLimitedScope.value
     ? userData.value?.human_view_traffic_remaining ?? '0 GB'
     : userData.value?.human_view_expiration_remaining ?? 'Неизвестно',
 )
 
 const secondaryStatusLabel = computed(() =>
-  isWhitelistScope.value ? 'Действует до' : 'До',
+  isTrafficLimitedScope.value ? 'Действует до' : 'До',
 )
 
 const secondaryStatusValue = computed(() =>
-  isWhitelistScope.value
+  isTrafficLimitedScope.value
     ? userData.value?.human_view_expiration_date ?? 'Без срока'
     : userData.value?.human_view_expiration_date ?? 'Неизвестно',
 )
 
 const quickStartTitle = computed(() =>
-  isWhitelistScope.value ? 'Подключение конфигурации с лимитом трафика' : 'Подключение за пару шагов',
+  isTrafficLimitedScope.value ? 'Подключение конфигурации с лимитом трафика' : 'Подключение за пару шагов',
 )
 
 const quickStartLead = computed(() =>
-  isWhitelistScope.value
+  isTrafficLimitedScope.value
     ? `Начните с ${quickStartSection.value.title} и импортируйте ссылку доступа без ручной настройки.`
     : `Начните с ${quickStartSection.value.title} и импортируйте подписку без ручной настройки.`,
 )
 
 const instructionsLeadText = computed(() =>
-  isWhitelistScope.value
+  isTrafficLimitedScope.value
     ? 'Откройте нужную платформу, скачайте приложение и импортируйте ссылку доступа.'
     : 'Откройте нужную платформу, скачайте приложение и импортируйте подписку.',
 )
@@ -395,7 +409,7 @@ const loadUserData = async () => {
   userData.value = null
   publicConfig.value = createEmptyPublicConfig()
   const token = route.params.token as string
-  const scope = isWhitelistScope.value ? 'whitelist' : 'standard'
+  const scope = isTrafficLimitedScope.value ? 'traffic_limited' : 'standard'
 
   try {
     const [configResult, userInfoResult] = await Promise.allSettled([
@@ -436,7 +450,7 @@ onMounted(async () => {
 <template>
   <main
     class="page-shell subscription-page"
-    :class="{ 'subscription-page--whitelist': isWhitelistScope }"
+    :class="{ 'subscription-page--traffic_limited': isTrafficLimitedScope }"
   >
     <div class="subscription-scene" aria-hidden="true">
       <div class="subscription-scene__orb subscription-scene__orb--one"></div>
@@ -476,7 +490,7 @@ onMounted(async () => {
               class="status-visual"
               :class="[
                 userData.sub_is_active ? 'status-visual--active' : 'status-visual--inactive',
-                isWhitelistScope ? 'status-visual--whitelist' : 'status-visual--standard',
+                isTrafficLimitedScope ? 'status-visual--traffic_limited' : 'status-visual--standard',
               ]"
             >
               <div class="status-visual__orbit status-visual__orbit--outer" aria-hidden="true"></div>
@@ -539,7 +553,7 @@ onMounted(async () => {
               </a>
             </div>
 
-            <div v-if="isWhitelistScope" class="traffic-summary">
+            <div v-if="isTrafficLimitedScope" class="traffic-summary">
               <div class="traffic-summary__item">
                 <small>Выдано</small>
                 <strong>{{ userData.human_view_traffic_allocated ?? '0 GB' }}</strong>
@@ -666,7 +680,7 @@ onMounted(async () => {
               </ul>
 
               <ul class="action-list">
-                <li v-for="action in section.actions" :key="action.label">
+              <li v-for="action in getVisibleInstructionActions(section, userData)" :key="action.label">
                   <a
                     v-if="action.type === 'link'"
                     :href="action.href(userData)"
@@ -718,19 +732,19 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.subscription-page--whitelist .subscription-scene__orb--one {
+.subscription-page--traffic_limited .subscription-scene__orb--one {
   background: radial-gradient(circle, rgba(94, 164, 232, 0.28), rgba(94, 164, 232, 0));
 }
 
-.subscription-page--whitelist .subscription-scene__orb--two {
+.subscription-page--traffic_limited .subscription-scene__orb--two {
   background: radial-gradient(circle, rgba(85, 203, 186, 0.2), rgba(85, 203, 186, 0));
 }
 
-.subscription-page--whitelist .subscription-scene__ring {
+.subscription-page--traffic_limited .subscription-scene__ring {
   border-color: rgba(95, 147, 210, 0.18);
 }
 
-.subscription-page--whitelist .subscription-scene__dot {
+.subscription-page--traffic_limited .subscription-scene__dot {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(114, 177, 232, 0.48));
 }
 
@@ -849,7 +863,7 @@ onMounted(async () => {
   min-width: 0;
 }
 
-.subscription-page--whitelist .card-surface {
+.subscription-page--traffic_limited .card-surface {
   border-color: rgba(93, 139, 196, 0.24);
   box-shadow: 0 16px 42px rgba(53, 88, 128, 0.16);
 }
@@ -875,7 +889,7 @@ onMounted(async () => {
   z-index: 0;
 }
 
-.subscription-page--whitelist .status-card__mesh {
+.subscription-page--traffic_limited .status-card__mesh {
   background:
     radial-gradient(circle at 75% 28%, rgba(98, 166, 228, 0.18), transparent 26%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0));
@@ -957,15 +971,15 @@ onMounted(async () => {
   border: 1px solid rgba(226, 128, 97, 0.18);
 }
 
-.subscription-page--whitelist .section-tag {
+.subscription-page--traffic_limited .section-tag {
   color: #6c7e9b;
 }
 
-.subscription-page--whitelist .section-title {
+.subscription-page--traffic_limited .section-title {
   color: #26415d;
 }
 
-.subscription-page--whitelist .scope-chip {
+.subscription-page--traffic_limited .scope-chip {
   color: #285e90;
   background: rgba(231, 243, 255, 0.95);
   border-color: rgba(95, 145, 201, 0.18);
@@ -1035,7 +1049,7 @@ onMounted(async () => {
   text-align: center;
 }
 
-.subscription-page--whitelist .primary-btn {
+.subscription-page--traffic_limited .primary-btn {
   background: linear-gradient(120deg, #2f77bd, #57b6c8);
   box-shadow: 0 11px 20px rgba(49, 98, 154, 0.28);
   border-color: rgba(87, 156, 202, 0.3);
@@ -1061,7 +1075,7 @@ onMounted(async () => {
   box-shadow: 0 11px 20px rgba(184, 70, 43, 0.12);
 }
 
-.subscription-page--whitelist .primary-btn--ghost {
+.subscription-page--traffic_limited .primary-btn--ghost {
   color: #2b6497;
   background: rgba(234, 244, 255, 0.95);
   box-shadow: 0 11px 20px rgba(64, 109, 171, 0.12);
@@ -1113,7 +1127,7 @@ onMounted(async () => {
   --status-visual-panel-end: rgba(253, 239, 239, 0.82);
 }
 
-.status-visual--whitelist {
+.status-visual--traffic_limited {
   border-color: rgba(97, 154, 214, 0.18);
   background:
     radial-gradient(circle at 20% 22%, rgba(255, 255, 255, 0.7), transparent 28%),

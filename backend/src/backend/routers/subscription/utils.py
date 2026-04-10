@@ -6,7 +6,7 @@ from shared.config.config import (
     KEY_PROFILE_TAG,
     INBOUND_ID_MAP,
 )
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 
 
 def _extract_inbound_id(remark: str) -> int | None:
@@ -31,7 +31,7 @@ def _extract_inbound_id(remark: str) -> int | None:
     return None
 
 
-def _strip_whitelist_decoration(label: str) -> str:
+def _strip_traffic_limited_decoration(label: str) -> str:
     cleaned = str(label).strip()
 
     while cleaned:
@@ -48,8 +48,8 @@ def _strip_whitelist_decoration(label: str) -> str:
 
 
 def _format_subscription_label(label: str, *, scope: str) -> str:
-    if scope == PRODUCT_SCOPE_WHITELIST:
-        return f"{_strip_whitelist_decoration(label)}{KEY_PROFILE_TAG}🏳️"
+    if scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+        return f"{_strip_traffic_limited_decoration(label)}{KEY_PROFILE_TAG}🏳️"
     return f"{label}{KEY_PROFILE_TAG}"
 
 

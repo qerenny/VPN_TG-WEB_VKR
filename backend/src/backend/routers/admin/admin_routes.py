@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 
@@ -13,18 +15,45 @@ from backend.admin.auth import (
     destroy_admin_session,
     require_superadmin,
 )
-from backend.bootstrap import get_admin_service
+from backend.bootstrap import (
+    get_access_registry_service,
+    get_access_request_service,
+    get_admin_service,
+)
 from backend.schemas.admin.admin_schemas import (
     AdminActionRequest,
+    AdminAccessRegistryBatchUpsertRequest,
+    AdminAccessRequestReviewRequest,
+    AdminAccessRegistryUpdateRequest,
+    AdminAccessRegistryUpsertRequest,
     AdminLoginRequest,
     AdminPromoCreateRequest,
     AdminPromoToggleRequest,
 )
 from backend.services.admin.admin_service import AdminService
 from shared.config.config import BOT_ADMIN_IDS, FRONTEND_ADMIN_LINK
+from shared.config.settings import get_effective_product_feature_settings
 from shared.utils.admin_access_link import consume_admin_bootstrap_token
+from shared.services.access.access_request_service import AccessRequestService
+from shared.services.access.access_registry_service import AccessRegistryService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _serialize_payload(value):
+    if is_dataclass(value):
+        return asdict(value)
+    return value
+
+
+def _require_promos_enabled() -> None:
+    if not get_effective_product_feature_settings().promos_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo module is disabled")
+
+
+def _require_access_registry_enabled() -> None:
+    if not get_effective_product_feature_settings().access_registry_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Access registry module is disabled")
 
 
 @router.post("/session/login")
@@ -181,12 +210,164 @@ async def post_admin_action(
     )
 
 
+@router.get("/access-requests")
+async def list_access_requests(
+    status_name: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=100, ge=1, le=500),
+    _principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRequestService = Depends(get_access_request_service),
+):
+    return {
+        "items": [_serialize_payload(item) for item in await service.list_requests(status_name=status_name, limit=limit)]
+    }
+
+
+@router.post("/access-requests/{request_id}/review")
+async def review_access_request(
+    request_id: int,
+    payload: AdminAccessRequestReviewRequest,
+    principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRequestService = Depends(get_access_request_service),
+):
+    result = await service.review_request(
+        request_id=request_id,
+        decision=payload.decision,
+        principal=principal,
+        review_note=payload.review_note,
+        template_code=payload.template_code,
+    )
+    return _serialize_payload(result)
+
+
+@router.get("/access-registry")
+async def list_access_registry_entries(
+    limit: int = Query(default=200, ge=1, le=500),
+    _principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRegistryService = Depends(get_access_registry_service),
+):
+    _require_access_registry_enabled()
+    return {"items": [_serialize_payload(item) for item in await service.list_entries(limit=limit)]}
+
+
+@router.post("/access-registry")
+async def upsert_access_registry_entry(
+    payload: AdminAccessRegistryUpsertRequest,
+    principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRegistryService = Depends(get_access_registry_service),
+):
+    _require_access_registry_enabled()
+    return _serialize_payload(
+        await service.upsert_entry(
+            identity_type=payload.identity_type,
+            identity_value=payload.identity_value,
+            template_code="month_1",
+            priority=100,
+            auto_approve=payload.auto_approve,
+            allow_auto_renew=payload.allow_auto_renew,
+            is_active=payload.is_active,
+            note=payload.note,
+            valid_from=None,
+            valid_until=None,
+            principal=principal,
+        )
+    )
+
+
+@router.post("/access-registry/batch")
+async def batch_upsert_access_registry_entries(
+    payload: AdminAccessRegistryBatchUpsertRequest,
+    principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRegistryService = Depends(get_access_registry_service),
+):
+    _require_access_registry_enabled()
+    return {
+        "items": [
+            _serialize_payload(item)
+            for item in await service.batch_upsert_entries(
+                identities_text=payload.identities_text,
+                priority=100,
+                auto_approve=payload.auto_approve,
+                allow_auto_renew=payload.allow_auto_renew,
+                is_active=payload.is_active,
+                note=payload.note,
+                valid_from=None,
+                valid_until=None,
+                principal=principal,
+            )
+        ]
+    }
+
+
+@router.patch("/access-registry/{entry_id}")
+async def update_access_registry_entry(
+    entry_id: int,
+    payload: AdminAccessRegistryUpdateRequest,
+    principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRegistryService = Depends(get_access_registry_service),
+):
+    _require_access_registry_enabled()
+    return _serialize_payload(
+        await service.update_entry(
+            entry_id=entry_id,
+            identity_type=payload.identity_type,
+            identity_value=payload.identity_value,
+            priority=100,
+            auto_approve=payload.auto_approve,
+            allow_auto_renew=payload.allow_auto_renew,
+            is_active=payload.is_active,
+            note=payload.note,
+            valid_from=None,
+            valid_until=None,
+            principal=principal,
+        )
+    )
+
+
+@router.post("/access-registry/{entry_id}/disable-and-revoke")
+async def disable_access_registry_entry_and_revoke_access(
+    entry_id: int,
+    principal: AdminPrincipal = Depends(require_superadmin),
+    registry_service: AccessRegistryService = Depends(get_access_registry_service),
+    admin_service: AdminService = Depends(get_admin_service),
+):
+    _require_access_registry_enabled()
+    entry = await registry_service.set_entry_active(
+        entry_id=entry_id,
+        is_active=False,
+        principal=principal,
+    )
+    identity_type = entry.identity_type if hasattr(entry, "identity_type") else entry["identity_type"]
+    identity_value = entry.identity_value if hasattr(entry, "identity_value") else entry["identity_value"]
+    revoke_result = await admin_service.disable_registry_entry_and_revoke_access(
+        entry_id=entry_id,
+        identity_type=identity_type,
+        identity_value=identity_value,
+        principal=principal,
+    )
+    return {
+        "entry": _serialize_payload(entry),
+        **revoke_result,
+    }
+
+
+@router.delete("/access-registry/{entry_id}")
+async def delete_access_registry_entry(
+    entry_id: int,
+    _principal: AdminPrincipal = Depends(require_superadmin),
+    service: AccessRegistryService = Depends(get_access_registry_service),
+):
+    _require_access_registry_enabled()
+    await service.delete_entry(entry_id=entry_id)
+    return {"status": "ok"}
+
+
 @router.get("/promos")
 async def list_promo_codes(
     limit: int = Query(default=100, ge=1, le=500),
     _principal: AdminPrincipal = Depends(require_superadmin),
     service: AdminService = Depends(get_admin_service),
 ):
+    _require_promos_enabled()
     return {"items": await service.list_promo_codes(limit=limit)}
 
 
@@ -196,6 +377,7 @@ async def create_promo_code(
     _principal: AdminPrincipal = Depends(require_superadmin),
     service: AdminService = Depends(get_admin_service),
 ):
+    _require_promos_enabled()
     return await service.create_promo_code(
         code=payload.code,
         plan_id=payload.plan_id,
@@ -214,4 +396,5 @@ async def toggle_promo_code(
     _principal: AdminPrincipal = Depends(require_superadmin),
     service: AdminService = Depends(get_admin_service),
 ):
+    _require_promos_enabled()
     return await service.toggle_promo_code(promo_id=promo_id, is_active=payload.is_active)

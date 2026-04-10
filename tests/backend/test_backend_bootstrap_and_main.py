@@ -7,6 +7,7 @@ import pytest
 from backend.bootstrap import (
     build_backend_deps,
     get_backend_deps,
+    get_access_registry_service,
     get_linking_service,
     get_jwt_encoder,
     get_subscription_manager_service,
@@ -20,11 +21,11 @@ from shared.config.settings import BackendSettings, JwtSettings
 
 def make_backend_settings() -> BackendSettings:
     return BackendSettings(
-        config_path=Path("/tmp/local_env.yaml"),
+        config_path=Path("/tmp/.env.local"),
         frontend_link="https://frontend.example.com",
         frontend_allowed_origins=(
             "https://frontend.example.com",
-            "https://nmdev.emptycloud.space",
+            "https://frontend-alt.example.com",
         ),
         backend_prefix="/api",
         redis_url="redis://localhost:6379/0",
@@ -56,6 +57,7 @@ def test_backend_dependency_accessors_read_from_app_state():
     assert get_backend_deps(request) is deps
     assert get_jwt_encoder(request) is deps.jwt_encoder
     assert get_linking_service(request) is deps.linking_service
+    assert get_access_registry_service(request) is deps.access_registry_service
     assert get_user_manager_service(request) is deps.user_manager_service
     assert get_subscription_manager_service(request) is deps.subscription_manager_service
     assert get_web_checkout_service(request) is deps.web_checkout_service
@@ -93,14 +95,14 @@ def test_create_app_uses_supplied_settings_and_deps():
     assert "/api/me/subscriptions" in route_paths
     assert "/api/me/payments" in route_paths
     assert "/api/me/payments/checkout" in route_paths
-    assert "/api/me/payments/checkout/whitelist" in route_paths
+    assert "/api/me/payments/checkout/traffic-limited" in route_paths
     assert "/api/me/links" in route_paths
     assert "/api/me/links/telegram/start" in route_paths
     assert "/api/public/link/telegram/{token}" in route_paths
     assert "/api/public/link/consume" in route_paths
     assert "/api/subscription/build" in route_paths
     assert "/api/subscription/{user_token}" in route_paths
-    assert "/api/payments/webhook/yookassa/{token}" in route_paths
+    assert "/api/payments/webhook/external/{method}/{token}" in route_paths
 
     cors_middleware = next(
         middleware for middleware in app.user_middleware if middleware.cls.__name__ == "CORSMiddleware"

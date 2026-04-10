@@ -30,17 +30,17 @@ jobs:
           cd ../telegram_bot && poetry lock && poetry install --no-interaction
 
       - name: Prepare test config
-        run: cp tests/integration/env.ci.yaml local_env.yaml
+        run: cp tests/integration/.env.ci .env.local
 
       - name: Validate config and Docker wiring
         run: |
           ruby -e 'require "yaml"; %w[.github/workflows/ci.yml .github/workflows/deploy.yml docker-compose.yml docker-compose.prod.yml].each { |p| YAML.load_file(p); puts "OK #{p}" }'
-          if find backend telegram_bot shared frontend -name Dockerfile -print0 | xargs -0 grep -nE 'COPY[[:space:]]+\./.*(local_env\.yaml|production_env\.yaml|env\.yaml)'; then
-            echo "::error::Docker images must not bake environment YAML files into the image."
+          if find backend telegram_bot shared frontend -name Dockerfile -print0 | xargs -0 grep -nE 'COPY[[:space:]]+\./.*(\.env\.local|\.env\.production)'; then
+            echo "::error::Docker images must not bake runtime environment files into the image."
             exit 1
           fi
-          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
-          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
+          grep -nE 'REMOTE_ACCESS_CONFIG_PATH:[[:space:]]*/app/\.env\.local' docker-compose.yml
+          grep -nE 'REMOTE_ACCESS_CONFIG_PATH:[[:space:]]*/app/\.env\.production' docker-compose.prod.yml
           docker compose config --services >/dev/null
           docker compose -f docker-compose.prod.yml config --services >/dev/null
 
@@ -126,22 +126,22 @@ jobs:
           cd ../telegram_bot && poetry lock && poetry install --no-interaction
 
       - name: Prepare integration config
-        run: cp tests/integration/env.ci.yaml local_env.yaml
+        run: cp tests/integration/.env.ci .env.local
 
       - name: Validate config and Docker wiring
         run: |
           ruby -e 'require "yaml"; %w[.github/workflows/ci.yml .github/workflows/deploy.yml docker-compose.yml docker-compose.prod.yml].each { |p| YAML.load_file(p); puts "OK #{p}" }'
-          if find backend telegram_bot shared frontend -name Dockerfile -print0 | xargs -0 grep -nE 'COPY[[:space:]]+\./.*(local_env\.yaml|production_env\.yaml|env\.yaml)'; then
-            echo "::error::Docker images must not bake environment YAML files into the image."
+          if find backend telegram_bot shared frontend -name Dockerfile -print0 | xargs -0 grep -nE 'COPY[[:space:]]+\./.*(\.env\.local|\.env\.production)'; then
+            echo "::error::Docker images must not bake runtime environment files into the image."
             exit 1
           fi
-          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/local_env\.yaml' docker-compose.yml
-          grep -nE 'APP_CONFIG_PATH:[[:space:]]*/app/production_env\.yaml' docker-compose.prod.yml
+          grep -nE 'REMOTE_ACCESS_CONFIG_PATH:[[:space:]]*/app/\.env\.local' docker-compose.yml
+          grep -nE 'REMOTE_ACCESS_CONFIG_PATH:[[:space:]]*/app/\.env\.production' docker-compose.prod.yml
           docker compose config --services >/dev/null
           docker compose -f docker-compose.prod.yml config --services >/dev/null
 
       - name: Run integration smoke tests
         env:
-          APP_RUN_INTEGRATION: "1"
-          APP_CONFIG_PATH: ${{ github.workspace }}/tests/integration/env.ci.yaml
+          REMOTE_ACCESS_RUN_INTEGRATION: "1"
+          REMOTE_ACCESS_CONFIG_PATH: ${{ github.workspace }}/tests/integration/.env.ci
         run: pytest -q -m integration tests/integration

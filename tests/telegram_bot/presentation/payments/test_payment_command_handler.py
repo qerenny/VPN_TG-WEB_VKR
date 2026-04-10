@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from shared.config.config import BOT_RETURN_URL
-from shared.migration_support.models.payments.payment_model import Payment
 from telegram_bot.presentation.payments.payment_command_handler import PaymentCommandHandler
 
 
@@ -18,8 +17,8 @@ class DummyBot:
 @pytest.fixture
 def handler_and_mocks():
     gateways = {
-        "cryptopay": AsyncMock(),
-        "yookassa": AsyncMock(),
+        "external_wallet": AsyncMock(),
+        "external_card": AsyncMock(),
     }
     repo = AsyncMock()
     timestamp = MagicMock()
@@ -53,7 +52,11 @@ async def test_ask_payment_method_sends_buttons(handler_and_mocks):
     handler, _, _, _, bot = handler_and_mocks
     product = {"label": "Prod", "payload": "pl", "amount": 100}
 
-    await handler.ask_payment_method(make_message(), product)
+    with patch(
+        "telegram_bot.presentation.payments.payment_command_handler.PHOTO_subscriptions",
+        "photo.png",
+    ):
+        await handler.ask_payment_method(make_message(), product)
 
     bot.send_photo.assert_awaited_once()
     _, kwargs = bot.send_photo.await_args
@@ -61,8 +64,8 @@ async def test_ask_payment_method_sends_buttons(handler_and_mocks):
     assert "Prod" in kwargs["caption"]
     markup = kwargs["reply_markup"]
     rows = markup.keyboard
-    assert rows[0][0].callback_data == "pay_method:yookassa:pl"
-    assert rows[1][0].callback_data == "pay_method:cryptopay:pl"
+    assert rows[0][0].callback_data == "pay_method:external_card:pl"
+    assert rows[1][0].callback_data == "pay_method:external_wallet:pl"
 
 
 @pytest.mark.asyncio
@@ -78,23 +81,27 @@ async def test_ask_payment_method_rejects_zero_amount_product(handler_and_mocks)
 
 
 @pytest.mark.asyncio
-async def test_ask_payment_method_supports_paid_whitelist_product(handler_and_mocks):
+async def test_ask_payment_method_supports_paid_traffic_limited_product(handler_and_mocks):
     handler, _, _, _, bot = handler_and_mocks
-    product = {"label": "Лимит трафика 15 GB", "payload": "whitelist15gb", "amount": 9900}
+    product = {"label": "Лимит трафика 15 GB", "payload": "traffic_limited15gb", "amount": 9900}
 
-    await handler.ask_payment_method(make_message(), product)
+    with patch(
+        "telegram_bot.presentation.payments.payment_command_handler.PHOTO_subscriptions",
+        "photo.png",
+    ):
+        await handler.ask_payment_method(make_message(), product)
 
     bot.send_photo.assert_awaited_once()
     _, kwargs = bot.send_photo.await_args
     assert "Лимит трафика 15 GB" in kwargs["caption"]
     markup = kwargs["reply_markup"]
-    assert markup.keyboard[0][0].callback_data == "pay_method:yookassa:whitelist15gb"
+    assert markup.keyboard[0][0].callback_data == "pay_method:external_card:traffic_limited15gb"
 
 
 @pytest.mark.asyncio
 async def test_initiate_payment_success(handler_and_mocks):
     handler, repo, gateways, _, bot = handler_and_mocks
-    gateways["cryptopay"].create_payment.return_value = {
+    gateways["external_wallet"].create_payment.return_value = {
         "id": "pid",
         "status": "pending",
         "url": "http://pay",
@@ -106,20 +113,20 @@ async def test_initiate_payment_success(handler_and_mocks):
         "telegram_bot.presentation.payments.payment_command_handler.messages.get_random_message",
         return_value="txt",
     ):
-        await handler.initiate_payment(make_message(), product, "cryptopay")
+        await handler.initiate_payment(make_message(), product, "external_wallet")
 
-    gateways["cryptopay"].create_payment.assert_awaited_once_with(
+    gateways["external_wallet"].create_payment.assert_awaited_once_with(
         tg_id=1,
         return_url=BOT_RETURN_URL,
         product=product,
     )
     repo.create.assert_awaited_once()
-    created_payment: Payment = repo.create.call_args.args[0]
+    created_payment = repo.create.call_args.args[0]
     assert created_payment.payment_id == "pid"
     assert created_payment.tg_id == 1
     assert created_payment.status == "pending"
     assert created_payment.payload == "pl"
-    assert created_payment.method == "cryptopay"
+    assert created_payment.method == "external_wallet"
     assert created_payment.created_at == 42
     bot.send_message.assert_awaited_once()
 

@@ -21,23 +21,28 @@ const product = ref<FrontendProductConfig>({ ...DEFAULT_PRODUCT_CONFIG, docs_lin
 
 const commerceEnabled = computed(() => features.value.commerce_enabled)
 const webPurchaseEnabled = computed(() => features.value.commerce_enabled && features.value.web_purchase_enabled)
+const accessRequestsEnabled = computed(() => features.value.access_requests_enabled)
 
 const sections = computed(() => {
   const items = [
   { label: 'Обзор', to: '/app', icon: 'dashboard' },
   { label: 'Подписки', to: '/app/subscriptions', icon: 'vpn_key' },
   ]
-  if (webPurchaseEnabled.value) {
-    items.push({ label: 'Покупка', to: '/app/purchase', icon: 'shopping_cart' })
+  if (webPurchaseEnabled.value || accessRequestsEnabled.value) {
+    items.push({ label: 'Получение доступа', to: '/app/purchase', icon: 'vpn_key' })
   }
   items.push({ label: 'Помощь', to: '/app/help', icon: 'help' })
   if (commerceEnabled.value) {
-    items.push({ label: 'Транзакции', to: '/app/payments', icon: 'receipt_long' })
+    items.push({ label: 'Операции', to: '/app/payments', icon: 'receipt_long' })
   }
   return items
 })
 
-const displayName = computed(() => session.me?.display_name || session.me?.email || 'Кабинет')
+const displayName = computed(() => (
+  session.me?.display_name
+  || (session.me?.telegram_username ? `@${session.me.telegram_username}` : null)
+  || 'Кабинет'
+))
 
 async function logout() {
   await clearSession()

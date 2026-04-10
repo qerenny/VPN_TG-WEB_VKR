@@ -15,7 +15,7 @@ class Plan(SQLModel, table=True):
     code: str = Field(sa_column=Column(Text, nullable=False, unique=True))
     name: str = Field(sa_column=Column(Text, nullable=False))
     kind: str = Field(sa_column=Column(Text, nullable=False))
-    legacy_payload: str = Field(
+    payload: str = Field(
         default="",
         sa_column=Column(Text, nullable=False),
     )

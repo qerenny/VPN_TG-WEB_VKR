@@ -19,16 +19,45 @@ async def test_encode_user_returns_jwt_token():
 
 
 @pytest.mark.asyncio
-async def test_get_public_config_returns_frontend_links():
+async def test_get_public_config_returns_frontend_links(monkeypatch):
+    monkeypatch.setattr(
+        user_routes,
+        "get_effective_product_feature_settings",
+        lambda: type(
+            "FeatureFlags",
+            (),
+            {
+                "access_requests_enabled": True,
+                "access_registry_enabled": True,
+                "access_admin_override_enabled": True,
+                "commerce_enabled": True,
+                "referrals_enabled": True,
+                "promos_enabled": True,
+                "web_purchase_enabled": True,
+                "telegram_bot_enabled": True,
+                "mail_enabled": False,
+                "standard_config_enabled": True,
+                "traffic_limited_config_enabled": False,
+            },
+        )(),
+    )
     result = await user_routes.get_public_config()
 
-    assert result["support_link"].startswith("https://t.me/")
+    assert result["support_link"] == result["product"]["support_link"]
+    assert result["support_link"]
     assert "subscription_add_links" in result
     assert result["features"]["commerce_enabled"] is True
     assert result["features"]["referrals_enabled"] is True
     assert result["features"]["promos_enabled"] is True
+    assert result["features"]["mail_enabled"] is False
+    assert result["features"]["access_requests_enabled"] is True
+    assert result["features"]["access_registry_enabled"] is True
+    assert result["features"]["access_admin_override_enabled"] is True
+    assert result["features"]["standard_config_enabled"] is True
+    assert result["features"]["traffic_limited_config_enabled"] is False
     assert "app_links" in result
     assert "instruction_links" in result
     assert "happ" in result["subscription_add_links"]
     assert "happ_ios" in result["app_links"]
-    assert "ios" in result["instruction_links"]
+    assert isinstance(result["instruction_links"], dict)
+    assert isinstance(result["product"]["docs_links"], dict)

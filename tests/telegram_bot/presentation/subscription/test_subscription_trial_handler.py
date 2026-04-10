@@ -19,14 +19,14 @@ def handler():
     info = AsyncMock()
     start_handler = AsyncMock()
     telegram_link_service = AsyncMock()
-    whitelist_traffic_service = AsyncMock()
+    traffic_limited_service = AsyncMock()
     subscription_service = AsyncMock()
     return SubscriptionTrialHandler(
         flow,
         info,
         start_handler,
         telegram_link_service=telegram_link_service,
-        whitelist_traffic_service=whitelist_traffic_service,
+        traffic_limited_service=traffic_limited_service,
         subscription_service=subscription_service,
     )
 
@@ -47,8 +47,8 @@ def start_handler(handler):
 
 
 @pytest.fixture
-def whitelist_traffic_service(handler):
-    return handler.whitelist_traffic_service
+def traffic_limited_service(handler):
+    return handler.traffic_limited_service
 
 
 @pytest.fixture
@@ -101,14 +101,14 @@ async def test_grant_trial_error(handler, flow, bot_mock):
 
 
 @pytest.mark.asyncio
-async def test_grant_whitelist_trial_success(
+async def test_grant_traffic_limited_trial_success(
     handler,
-    whitelist_traffic_service,
+    traffic_limited_service,
     telegram_link_service,
     start_handler,
     bot_mock,
 ):
-    whitelist_traffic_service.activate_trial.return_value = SimpleNamespace(
+    traffic_limited_service.activate_trial.return_value = SimpleNamespace(
         granted_bytes=2 * 1024 * 1024 * 1024,
         expires_at=datetime(2026, 4, 2, 12, 0, 0, tzinfo=timezone.utc),
         was_created=True,
@@ -120,9 +120,9 @@ async def test_grant_whitelist_trial_success(
         return_value="trial ok",
     ):
         call = MockCall(10)
-        await handler.grant_whitelist_trial(call)
+        await handler.grant_traffic_limited_trial(call)
 
-    whitelist_traffic_service.activate_trial.assert_awaited_once_with(tg_id=10)
+    traffic_limited_service.activate_trial.assert_awaited_once_with(tg_id=10)
     telegram_link_service.create_web_link.assert_awaited_once_with(tg_id=10)
     assert bot_mock.send_message.await_count == 2
     kwargs = bot_mock.send_message.await_args_list[1].kwargs
@@ -134,19 +134,19 @@ async def test_grant_whitelist_trial_success(
 
 
 @pytest.mark.asyncio
-async def test_grant_whitelist_trial_already_used(
+async def test_grant_traffic_limited_trial_already_used(
     handler,
-    whitelist_traffic_service,
+    traffic_limited_service,
     bot_mock,
 ):
-    whitelist_traffic_service.activate_trial.return_value = SimpleNamespace(
+    traffic_limited_service.activate_trial.return_value = SimpleNamespace(
         was_created=False,
     )
     with patch(
         "telegram_bot.shared.texts.messages.get_random_message",
         return_value="wl used",
     ):
-        await handler.grant_whitelist_trial(MockCall(8))
+        await handler.grant_traffic_limited_trial(MockCall(8))
 
     assert bot_mock.send_message.await_args_list[1].kwargs == {"chat_id": 8, "text": "wl used"}
     bot_mock.delete_message.assert_awaited_once_with(chat_id=8, message_id=501)

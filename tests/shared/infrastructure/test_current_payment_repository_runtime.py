@@ -78,7 +78,7 @@ async def seed_data(session_factory):
                 code="month_1",
                 name="1 month access",
                 kind="paid",
-                legacy_payload="month1",
+                payload="month1",
                 scope=PRODUCT_SCOPE_STANDARD,
                 entitlement_kind=ENTITLEMENT_KIND_TIME,
                 duration_days=30,
@@ -93,16 +93,16 @@ async def seed_data(session_factory):
 
 
 @pytest.mark.asyncio
-async def test_create_runtime_payment_creates_attempt(payment_repo, session_factory):
+async def test_create_runtime_payment_creates_attempt_from_tg_id(payment_repo, session_factory):
     snapshot = PaymentSnapshot(
         payment_id="pay_runtime_1",
-        user_id=1,
+        user_id=None,
         tg_id=7001,
         status="pending",
         payload="month1",
         created_at=_ms(_dt()),
         confirmed=False,
-        method="yookassa",
+        method="external_card",
     )
 
     await payment_repo.create(snapshot)
@@ -124,7 +124,7 @@ async def test_get_unconfirmed_paid_uses_paid_provider_statuses(payment_repo):
             payload="month1",
             created_at=_ms(_dt()),
             confirmed=False,
-            method="yookassa",
+            method="external_card",
         )
     )
 

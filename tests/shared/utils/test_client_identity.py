@@ -1,4 +1,4 @@
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.client_identity import (
     build_generated_client_label,
     build_vpn_client_email,
@@ -35,12 +35,12 @@ def test_build_vpn_client_email_uses_consistent_standard_format():
     )
 
 
-def test_build_vpn_client_email_uses_consistent_whitelist_format():
+def test_build_vpn_client_email_uses_consistent_traffic_limited_format():
     assert (
         build_vpn_client_email(
             seed="Alice+QA@example.com",
             client_uuid="ca0968d4-1eed-40df-bec7-bdd33416c270",
-            scope=PRODUCT_SCOPE_WHITELIST,
+            scope=PRODUCT_SCOPE_TRAFFIC_LIMITED,
         )
         == "wl-alice-qa-ca0968d4"
     )

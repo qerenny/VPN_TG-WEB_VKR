@@ -19,7 +19,7 @@ class User(SQLModel, table=True):
     expiration_date: Optional[int] = Field(default=None, sa_column=Column(BigInteger))
     login_date: int = Field(sa_column=Column(BigInteger))
     trial_date: Optional[int] = Field(default=None, sa_column=Column(BigInteger))
-    news_channel_date: Optional[int] = Field(default=None, sa_column=Column(BigInteger))
+    info_channel_date: Optional[int] = Field(default=None, sa_column=Column(BigInteger))
     sub_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()), sa_column=Column(Text)
     )

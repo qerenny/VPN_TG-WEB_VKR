@@ -13,7 +13,6 @@ def _features(**overrides):
         "promos_enabled": True,
         "web_purchase_enabled": True,
         "telegram_bot_enabled": True,
-        "telegram_proxy_enabled": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -62,53 +61,44 @@ def test_assert_webhook_auth_rejects_disabled_commerce():
     assert exc_info.value.status_code == 404
 
 
-def test_extract_yookassa_update_reads_object_payload():
-    payment_id, status = routes._extract_yookassa_update(
-        {"object": {"id": " payment-1 ", "status": "SUCCEEDED"}}
+def test_extract_external_gateway_update_reads_payload():
+    payment_id, status = routes._extract_external_gateway_update(
+        {"payment_id": " payment-1 ", "status": "SUCCEEDED"}
     )
 
     assert payment_id == "payment-1"
     assert status == "succeeded"
 
 
-def test_extract_cryptopay_update_supports_invoice_paid_update_type():
-    payment_id, status = routes._extract_cryptopay_update(
-        {"update_type": "invoice_paid", "payload": {"invoice_id": 42}}
-    )
-
-    assert payment_id == "42"
-    assert status == "paid"
-
-
 @pytest.mark.asyncio
-async def test_yookassa_webhook_processes_status_update():
+async def test_external_gateway_webhook_processes_status_update():
     service = AsyncMock()
     service.process_status_update.return_value = {"accepted": True, "queued": True}
-    request = make_request({"object": {"id": "pay-1", "status": "succeeded"}})
+    request = make_request({"payment_id": "pay-1", "status": "succeeded"})
 
     with (
         patch.object(routes, "_assert_webhook_auth") as assert_auth,
         patch.object(routes, "_build_service", return_value=service),
     ):
-        result = await routes.yookassa_webhook("secret", request)
+        result = await routes.external_gateway_webhook("external_card", "secret", request)
 
     assert_auth.assert_called_once_with("secret")
     service.process_status_update.assert_awaited_once_with(
-        method="yookassa",
+        method="external_card",
         payment_id="pay-1",
         status="succeeded",
-        payload={"object": {"id": "pay-1", "status": "succeeded"}},
+        payload={"payment_id": "pay-1", "status": "succeeded"},
     )
     assert result == {"ok": True, "accepted": True, "queued": True}
 
 
 @pytest.mark.asyncio
-async def test_cryptopay_webhook_rejects_invalid_json():
+async def test_external_gateway_webhook_rejects_invalid_json():
     request = make_request(json_side_effect=ValueError("boom"))
 
     with patch.object(routes, "_assert_webhook_auth"):
         with pytest.raises(routes.HTTPException) as exc_info:
-            await routes.cryptopay_webhook("secret", request)
+            await routes.external_gateway_webhook("external_wallet", "secret", request)
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Invalid JSON payload"

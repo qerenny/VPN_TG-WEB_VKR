@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from shared.migration_support.models.users.user_model import User
 from telegram_bot.services.subscriptions.subscription_reminder_service import (
     SubscriptionReminderService,
 )
@@ -75,7 +74,7 @@ async def test_enqueue_expiring_users_enqueues_only_new_expiring_users(service_a
     service, repo, _info_service, timestamp, queue = service_and_mocks
     timestamp.current_timestamp.return_value = 1_000
     repo.get_users_expiring_between.return_value = [
-        User(
+        SimpleNamespace(
             tg_id=1,
             uuid="u1",
             email="a@example.com",
@@ -84,7 +83,7 @@ async def test_enqueue_expiring_users_enqueues_only_new_expiring_users(service_a
             trial_date=None,
             sub_id="sub-1",
         ),
-        User(
+        SimpleNamespace(
             tg_id=2,
             uuid="u2",
             email="b@example.com",
@@ -93,7 +92,7 @@ async def test_enqueue_expiring_users_enqueues_only_new_expiring_users(service_a
             trial_date=None,
             sub_id="sub-2",
         ),
-        User(
+        SimpleNamespace(
             tg_id=3,
             uuid="u3",
             email="c@example.com",

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
 
 import { fetchPayments, type WebPaymentItem } from '../../api/account'
@@ -12,6 +13,7 @@ import {
 import { formatDateTime, formatMoney } from '../../utils/format'
 
 const toast = useToast()
+const router = useRouter()
 const payments = ref<WebPaymentItem[]>([])
 const loading = ref(true)
 const features = ref<FrontendFeatureFlags>({ ...DEFAULT_FEATURE_FLAGS })
@@ -91,7 +93,7 @@ async function loadPayments(options: { silent?: boolean } = {}) {
     payments.value = await fetchPayments()
   } catch {
     if (!silent) {
-      toast.error('Не удалось загрузить историю платежей')
+      toast.error('Не удалось загрузить историю операций')
     }
   } finally {
     loading.value = false
@@ -105,6 +107,7 @@ onMounted(async () => {
   if (!commerceEnabled.value) {
     payments.value = []
     loading.value = false
+    await router.replace('/app')
     return
   }
   await loadPayments()
@@ -118,7 +121,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="cabinet-section">
     <div class="cabinet-section__head">
-      <p class="cabinet-kicker">Транзакции</p>
+      <p class="cabinet-kicker">Операции</p>
       <h2 class="cabinet-title">История операций</h2>
       <p class="cabinet-copy">Последние операции и их текущий статус.</p>
     </div>
@@ -128,23 +131,18 @@ onBeforeUnmount(() => {
         <img src="/favicon.svg" alt="" class="cabinet-loader__img" />
         <p class="cabinet-loader__text">Загружаем платежи...</p>
       </div>
-      <div v-else-if="!commerceEnabled" class="cabinet-empty">
-        <span class="material-symbols-outlined payments-icon">lock</span>
-        <p class="cabinet-subtitle" style="font-size: 17px;">Коммерческий модуль отключён</p>
-        <p class="cabinet-note">В этой сборке история платежей не используется.</p>
-      </div>
       <div v-else-if="payments.length === 0" class="cabinet-empty">
         <span class="material-symbols-outlined payments-icon">receipt_long</span>
         <p class="cabinet-subtitle" style="font-size: 17px;">Операций пока нет</p>
         <p class="cabinet-note">После первой операции здесь появится история.</p>
         <RouterLink v-if="webPurchaseEnabled" class="cabinet-btn cabinet-btn--warm" to="/app/purchase">
-          <span class="material-symbols-outlined">shopping_cart</span>
+          <span class="material-symbols-outlined">vpn_key</span>
           Получить доступ
         </RouterLink>
       </div>
       <div v-else class="cabinet-table">
         <p v-if="hasPendingPayments" class="cabinet-note payment-polling-note">
-          Обновляем статус оплаты автоматически...
+          Обновляем статус автоматически...
         </p>
         <article
           v-for="payment in payments"
@@ -154,8 +152,8 @@ onBeforeUnmount(() => {
         >
           <div class="payment-row__main">
             <div class="payment-row__badges">
-              <span class="cabinet-badge" :class="payment.scope === 'whitelist' ? '' : 'cabinet-badge--warm'">
-                {{ payment.scope === 'whitelist' ? 'Лимит трафика' : 'Базовая конфигурация' }}
+              <span class="cabinet-badge" :class="payment.scope === 'traffic_limited' ? '' : 'cabinet-badge--warm'">
+                {{ payment.scope === 'traffic_limited' ? 'Лимит трафика' : 'Базовая конфигурация' }}
               </span>
               <span class="cabinet-badge" :class="statusBadgeClass(payment.runtime_status)">
                 {{ statusLabel(payment.runtime_status) }}

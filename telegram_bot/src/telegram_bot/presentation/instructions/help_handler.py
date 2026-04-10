@@ -27,8 +27,17 @@ class HelpHandler:
         text = messages.get_random_message("instructions_welcome_message")
         markup = types.InlineKeyboardMarkup()
 
-        markup.row(types.InlineKeyboardButton(f"{FAQ}", web_app=WebAppInfo(FAQ_LINK)))
-        markup.row(types.InlineKeyboardButton(f"{INSTRUCTIONS_DEVICES}", web_app=WebAppInfo(INSTRUCTIONS_DEVICES_LINK)))
+        if FAQ_LINK:
+            markup.row(types.InlineKeyboardButton(f"{FAQ}", web_app=WebAppInfo(FAQ_LINK)))
+        if INSTRUCTIONS_DEVICES_LINK:
+            markup.row(
+                types.InlineKeyboardButton(
+                    f"{INSTRUCTIONS_DEVICES}",
+                    web_app=WebAppInfo(INSTRUCTIONS_DEVICES_LINK),
+                )
+            )
+        if not FAQ_LINK and not INSTRUCTIONS_DEVICES_LINK:
+            text = f"{text}\n\nДополнительные справочные материалы не настроены."
         markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
 
         await render_photo_menu(

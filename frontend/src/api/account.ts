@@ -38,8 +38,8 @@ export interface WebSubscriptions {
     external_email: string | null
     subscription_external_id: string | null
   }
-  whitelist: {
-    scope: 'whitelist'
+  traffic_limited: {
+    scope: 'traffic_limited'
     is_active: boolean
     expires_at: string | null
     human_view_expiration_remaining: string | null
@@ -52,6 +52,11 @@ export interface WebSubscriptions {
     human_view_traffic_allocated: string | null
     human_view_traffic_used: string | null
     human_view_traffic_remaining: string | null
+  }
+  access_policy?: {
+    registry_managed: boolean
+    registry_template_code: string | null
+    registry_template_label: string | null
   }
 }
 
@@ -87,7 +92,44 @@ export interface WebCatalogPlan {
 
 export interface WebPlanCatalog {
   standard: WebCatalogPlan[]
-  whitelist: WebCatalogPlan[]
+  traffic_limited: WebCatalogPlan[]
+}
+
+export interface WebAccessRequestItem {
+  id: number
+  user_id: number
+  requested_template_code: string | null
+  requested_template_label?: string | null
+  approved_template_label?: string | null
+  access_grant_id: number | null
+  channel: string
+  request_kind: string
+  status: string
+  comment: string | null
+  review_note: string | null
+  reviewed_by_actor: string | null
+  requested_at: string
+  reviewed_at: string | null
+  expires_at: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface WebAccessGrantItem {
+  id: number
+  template_code: string
+  template_label?: string
+  scope: string
+  entitlement_kind: string
+  source_type: string
+  source_ref: string | null
+  status: string
+  expires_at: string | null
+  quota_bytes: number | null
+  granted_by_user_id: number | null
+  created_at: string
+  activated_at: string | null
+  revoked_at: string | null
+  metadata: Record<string, unknown>
 }
 
 export interface TelegramLinkStartResult {
@@ -141,6 +183,26 @@ export async function fetchPlanCatalog() {
   return response.data
 }
 
+export async function fetchAccessRequests() {
+  const response = await http.get<{ items: WebAccessRequestItem[] }>('/me/access-requests')
+  return response.data.items
+}
+
+export async function createAccessRequest(payload: { template_code?: string | null; request_kind?: string | null; comment?: string | null }) {
+  const response = await http.post<WebAccessRequestItem>('/me/access-requests', payload)
+  return response.data
+}
+
+export async function repeatAccessRequest(requestId: number) {
+  const response = await http.post<WebAccessRequestItem>(`/me/access-requests/${requestId}/repeat`)
+  return response.data
+}
+
+export async function fetchAccessGrants() {
+  const response = await http.get<{ items: WebAccessGrantItem[] }>('/me/access-grants')
+  return response.data.items
+}
+
 export async function startTelegramLink() {
   const response = await http.post<TelegramLinkStartResult>('/me/links/telegram/start')
   return response.data
@@ -154,8 +216,8 @@ export async function createStandardCheckout(planCode: string, method = 'externa
   return response.data as { checkout_url: string }
 }
 
-export async function createWhitelistCheckout(planCode: string, method = 'external_card') {
-  const response = await http.post('/me/payments/checkout/whitelist', {
+export async function createTrafficLimitedCheckout(planCode: string, method = 'external_card') {
+  const response = await http.post('/me/payments/checkout/traffic-limited', {
     plan_code: planCode,
     method,
   })

@@ -11,7 +11,14 @@ from backend.admin.auth import (
     require_superadmin,
 )
 from backend.routers.admin import admin_routes
-from backend.schemas.admin.admin_schemas import AdminActionRequest, AdminLoginRequest
+from backend.schemas.admin.admin_schemas import (
+    AdminAccessRequestReviewRequest,
+    AdminAccessRegistryBatchUpsertRequest,
+    AdminAccessRegistryUpdateRequest,
+    AdminAccessRegistryUpsertRequest,
+    AdminActionRequest,
+    AdminLoginRequest,
+)
 
 
 def make_request(*, token: str = "secret-token", role: str = "superadmin", enabled: bool = True):
@@ -199,3 +206,252 @@ async def test_post_admin_action_delegates_to_service():
         redis_client=None,
     )
     assert result == {"status": "success", "summary": "done"}
+
+
+@pytest.mark.asyncio
+async def test_list_access_requests_delegates_to_service():
+    service = AsyncMock()
+    service.list_requests.return_value = [{"id": 1, "status": "pending"}]
+
+    result = await admin_routes.list_access_requests(
+        status_name="pending",
+        limit=20,
+        _principal=SimpleNamespace(actor="qa-admin", role="superadmin"),
+        service=service,
+    )
+
+    service.list_requests.assert_awaited_once_with(status_name="pending", limit=20)
+    assert result == {"items": [{"id": 1, "status": "pending"}]}
+
+
+@pytest.mark.asyncio
+async def test_review_access_request_delegates_to_service():
+    service = AsyncMock()
+    service.review_request.return_value = {"id": 4, "status": "approved"}
+    principal = SimpleNamespace(actor="qa-admin", role="superadmin")
+
+    result = await admin_routes.review_access_request(
+        request_id=4,
+        payload=AdminAccessRequestReviewRequest(
+            decision="approve",
+            review_note="ok",
+            template_code="month_1",
+        ),
+        principal=principal,
+        service=service,
+    )
+
+    service.review_request.assert_awaited_once_with(
+        request_id=4,
+        decision="approve",
+        principal=principal,
+        review_note="ok",
+        template_code="month_1",
+    )
+    assert result == {"id": 4, "status": "approved"}
+
+
+@pytest.mark.asyncio
+async def test_list_access_registry_entries_delegates_to_service(monkeypatch):
+    monkeypatch.setattr(
+        admin_routes,
+        "get_effective_product_feature_settings",
+        lambda: SimpleNamespace(access_registry_enabled=True),
+    )
+    service = AsyncMock()
+    service.list_entries.return_value = [{"id": 1, "identity_type": "telegram_id"}]
+
+    result = await admin_routes.list_access_registry_entries(
+        limit=50,
+        _principal=SimpleNamespace(actor="qa-admin", role="superadmin"),
+        service=service,
+    )
+
+    service.list_entries.assert_awaited_once_with(limit=50)
+    assert result == {"items": [{"id": 1, "identity_type": "telegram_id"}]}
+
+
+@pytest.mark.asyncio
+async def test_upsert_access_registry_entry_delegates_to_service(monkeypatch):
+    monkeypatch.setattr(
+        admin_routes,
+        "get_effective_product_feature_settings",
+        lambda: SimpleNamespace(access_registry_enabled=True),
+    )
+    service = AsyncMock()
+    service.upsert_entry.return_value = {"id": 2, "identity_type": "email"}
+    principal = SimpleNamespace(actor="qa-admin", role="superadmin")
+
+    result = await admin_routes.upsert_access_registry_entry(
+        payload=AdminAccessRegistryUpsertRequest(
+            identity_type="email",
+            identity_value="user@example.com",
+            auto_approve=True,
+            is_active=True,
+            note="corp",
+        ),
+        principal=principal,
+        service=service,
+    )
+
+    service.upsert_entry.assert_awaited_once_with(
+        identity_type="email",
+        identity_value="user@example.com",
+        template_code="month_1",
+        priority=100,
+        auto_approve=True,
+        allow_auto_renew=False,
+        is_active=True,
+        note="corp",
+        valid_from=None,
+        valid_until=None,
+        principal=principal,
+    )
+    assert result == {"id": 2, "identity_type": "email"}
+
+
+@pytest.mark.asyncio
+async def test_batch_upsert_access_registry_entry_delegates_to_service(monkeypatch):
+    monkeypatch.setattr(
+        admin_routes,
+        "get_effective_product_feature_settings",
+        lambda: SimpleNamespace(access_registry_enabled=True),
+    )
+    service = AsyncMock()
+    service.batch_upsert_entries.return_value = [{"id": 2, "is_active": True}]
+    principal = SimpleNamespace(actor="qa-admin", role="superadmin")
+
+    result = await admin_routes.batch_upsert_access_registry_entries(
+        payload=AdminAccessRegistryBatchUpsertRequest(
+            identities_text="123 user@example.com",
+            allow_auto_renew=True,
+        ),
+        principal=principal,
+        service=service,
+    )
+
+    service.batch_upsert_entries.assert_awaited_once_with(
+        identities_text="123 user@example.com",
+        priority=100,
+        auto_approve=True,
+        allow_auto_renew=True,
+        is_active=True,
+        note=None,
+        valid_from=None,
+        valid_until=None,
+        principal=principal,
+    )
+    assert result == {"items": [{"id": 2, "is_active": True}]}
+
+
+@pytest.mark.asyncio
+async def test_update_access_registry_entry_delegates_to_service(monkeypatch):
+    monkeypatch.setattr(
+        admin_routes,
+        "get_effective_product_feature_settings",
+        lambda: SimpleNamespace(access_registry_enabled=True),
+    )
+    service = AsyncMock()
+    service.update_entry.return_value = {"id": 2, "is_active": False}
+    principal = SimpleNamespace(actor="qa-admin", role="superadmin")
+
+    result = await admin_routes.update_access_registry_entry(
+        entry_id=2,
+        payload=AdminAccessRegistryUpdateRequest(
+            identity_type="telegram_id",
+            identity_value="123",
+            auto_approve=True,
+            allow_auto_renew=False,
+            is_active=False,
+            note="corp",
+        ),
+        principal=principal,
+        service=service,
+    )
+
+    service.update_entry.assert_awaited_once_with(
+        entry_id=2,
+        identity_type="telegram_id",
+        identity_value="123",
+        priority=100,
+        auto_approve=True,
+        allow_auto_renew=False,
+        is_active=False,
+        note="corp",
+        valid_from=None,
+        valid_until=None,
+        principal=principal,
+    )
+    assert result == {"id": 2, "is_active": False}
+
+
+@pytest.mark.asyncio
+async def test_disable_access_registry_entry_and_revoke_access_delegates_to_services(monkeypatch):
+    monkeypatch.setattr(
+        admin_routes,
+        "get_effective_product_feature_settings",
+        lambda: SimpleNamespace(access_registry_enabled=True),
+    )
+    registry_service = AsyncMock()
+    registry_service.set_entry_active.return_value = {
+        "id": 2,
+        "identity_type": "telegram_id",
+        "identity_value": "123",
+        "is_active": False,
+    }
+    admin_service = AsyncMock()
+    admin_service.disable_registry_entry_and_revoke_access.return_value = {
+        "matched_users": 1,
+        "revoked_grants": 1,
+        "runtime_revocations": 1,
+    }
+    principal = SimpleNamespace(actor="qa-admin", role="superadmin")
+
+    result = await admin_routes.disable_access_registry_entry_and_revoke_access(
+        entry_id=2,
+        principal=principal,
+        registry_service=registry_service,
+        admin_service=admin_service,
+    )
+
+    registry_service.set_entry_active.assert_awaited_once_with(
+        entry_id=2,
+        is_active=False,
+        principal=principal,
+    )
+    admin_service.disable_registry_entry_and_revoke_access.assert_awaited_once_with(
+        entry_id=2,
+        identity_type="telegram_id",
+        identity_value="123",
+        principal=principal,
+    )
+    assert result == {
+        "entry": {
+            "id": 2,
+            "identity_type": "telegram_id",
+            "identity_value": "123",
+            "is_active": False,
+        },
+        "matched_users": 1,
+        "revoked_grants": 1,
+        "runtime_revocations": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_access_registry_entry_delegates_to_service(monkeypatch):
+    monkeypatch.setattr(
+        admin_routes,
+        "get_effective_product_feature_settings",
+        lambda: SimpleNamespace(access_registry_enabled=True),
+    )
+    service = AsyncMock()
+
+    result = await admin_routes.delete_access_registry_entry(
+        entry_id=2,
+        _principal=SimpleNamespace(actor="qa-admin", role="superadmin"),
+        service=service,
+    )
+
+    service.delete_entry.assert_awaited_once_with(entry_id=2)
+    assert result == {"status": "ok"}

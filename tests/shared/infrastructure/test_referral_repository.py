@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel, select
 
-from shared.migration_support.repositories.referrals.referral_repository import ReferralRepository
-from shared.infrastructure import growth_sync_service as growth_sync_module
+from shared.infrastructure import growth_service as growth_sync_module
+from shared.infrastructure.referrals.referral_repository import ReferralRepository
 from shared.models import register_models
 from shared.models.growth.referral_edge_model import ReferralEdge
 from shared.models.growth.referral_reward_model import ReferralReward

@@ -4,14 +4,14 @@ from typing import Any
 
 from shared.config.config import PHOTO_menu
 from shared.constants.payments import PROVIDER_STATUS_PAID
-from shared.infrastructure.payment_plan_catalog import get_plan_seed_by_legacy_payload
+from shared.infrastructure.payment_plan_catalog import get_plan_seed_by_payload
 from shared.infrastructure.payments.payment_repository import (
     PaymentRepository,
 )
 from shared.product_constants import (
     ENTITLEMENT_KIND_TIME,
     PRODUCT_SCOPE_STANDARD,
-    PRODUCT_SCOPE_WHITELIST,
+    PRODUCT_SCOPE_TRAFFIC_LIMITED,
 )
 from shared.utils.logging_utils import logger, log_with_throttle
 from telegram_bot.bot import bot
@@ -42,7 +42,6 @@ class PaymentFulfillmentService:
         worker_pop_timeout_seconds: int,
         dedupe_ttl_seconds: int,
         telegram_link_service: TelegramLinkService | None = None,
-        sync_service=None,
     ):
         self.repo = repo
         self.payment_processing = payment_processing
@@ -260,12 +259,21 @@ class PaymentFulfillmentService:
                 refreshed_cabinet_url = await self.telegram_link_service.create_web_link(tg_id=int(tg_id))
             else:
                 refreshed_cabinet_url = None
-            await bot.send_photo(
-                chat_id=tg_id,
-                photo=PHOTO_menu,
-                caption=messages.get_random_message("start_welcome_message"),
-                reply_markup=build_main_menu_markup(cabinet_url=refreshed_cabinet_url),
-            )
+            welcome_text = messages.get_random_message("start_welcome_message")
+            welcome_markup = build_main_menu_markup(cabinet_url=refreshed_cabinet_url)
+            if str(PHOTO_menu or "").strip():
+                await bot.send_photo(
+                    chat_id=tg_id,
+                    photo=PHOTO_menu,
+                    caption=welcome_text,
+                    reply_markup=welcome_markup,
+                )
+            else:
+                await bot.send_message(
+                    chat_id=tg_id,
+                    text=welcome_text,
+                    reply_markup=welcome_markup,
+                )
         except Exception as err:
             logger.error(f"Failed to send payment fulfillment notification to tg_id={tg_id}: {err}")
 
@@ -277,11 +285,11 @@ class PaymentFulfillmentService:
 
     @staticmethod
     def _subscription_link_scope(payload: str) -> str | None:
-        seed = get_plan_seed_by_legacy_payload(str(payload))
+        seed = get_plan_seed_by_payload(str(payload))
         if seed is None:
             return PRODUCT_SCOPE_STANDARD
         if seed.scope == PRODUCT_SCOPE_STANDARD and seed.entitlement_kind == ENTITLEMENT_KIND_TIME:
             return PRODUCT_SCOPE_STANDARD
-        if seed.scope == PRODUCT_SCOPE_WHITELIST:
-            return PRODUCT_SCOPE_WHITELIST
+        if seed.scope == PRODUCT_SCOPE_TRAFFIC_LIMITED:
+            return PRODUCT_SCOPE_TRAFFIC_LIMITED
         return None

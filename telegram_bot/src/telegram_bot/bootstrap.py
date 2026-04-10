@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from shared.config.config import AUTH_IDENTITY_LINK_TOKEN_TTL_MINUTES
+from shared.config.config import AUTH_IDENTITY_LINK_TOKEN_TTL_MINUTES, TRAFFIC_LIMITED_API_SERVERS
 from shared.config.settings import (
-    RolloutFeatureFlags,
+    RuntimeSyncFlags,
     TelegramBotSettings,
-    get_product_feature_settings,
+    get_effective_product_feature_settings,
     load_settings,
 )
+from shared.infrastructure.access.access_registry_repository import AccessRegistryRepository
+from shared.infrastructure.access.access_request_repository import AccessRequestRepository
 from shared.infrastructure.identity_link_service import IdentityLinkService
+from shared.infrastructure.access.access_grant_repository import AccessGrantRepository
+from shared.services.access.access_request_service import AccessRequestService
+from shared.services.access.access_registry_service import AccessRegistryService
 from shared.infrastructure.payments.payment_repository import (
     PaymentRepository,
 )
@@ -23,9 +28,8 @@ from shared.infrastructure.referrals.referral_repository import (
     ReferralRepository,
 )
 from shared.infrastructure.users.telegram_user_repository import TelegramUserRepository
-from shared.infrastructure.growth_sync_service import GrowthSyncService
-from shared.infrastructure.payment_sync_service import PaymentSyncService
-from shared.infrastructure.vpn_topology_sync_service import VpnTopologySyncService
+from shared.infrastructure.growth_service import GrowthService
+from shared.infrastructure.vpn_topology_service import VpnTopologyService
 from shared.utils.async_redis_client import AsyncRedisClient
 from shared.utils.jwt_encoder import JWTEncoder
 from shared.utils.timestamp_utils import TimestampUtils
@@ -37,11 +41,14 @@ from telegram_bot.presentation.payments.payment_command_handler import PaymentCo
 from telegram_bot.presentation.referrals.referral_menu_handler import ReferralMenuHandler
 from telegram_bot.presentation.referrals.referral_start_handler import ReferralStartHandler
 from telegram_bot.presentation.start.start_handler import StartHandler
+from telegram_bot.presentation.subscriptions.subscription_access_request_handler import (
+    SubscriptionAccessRequestHandler,
+)
 from telegram_bot.presentation.subscriptions.subscription_menu_handler import (
     SubscriptionMenuHandler,
 )
-from telegram_bot.presentation.subscriptions.subscription_news_channel_handler import (
-    SubscriptionNewsChannelHandler,
+from telegram_bot.presentation.subscriptions.subscription_info_channel_handler import (
+    SubscriptionInfoChannelHandler,
 )
 from telegram_bot.presentation.subscriptions.subscription_promo_handler import (
     SubscriptionPromoHandler,
@@ -57,6 +64,14 @@ from telegram_bot.services.payments.payment_fulfillment_service import (
 )
 from telegram_bot.services.payments.payment_processing_service import (
     PaymentProcessingService,
+)
+from telegram_bot.services.access.access_issuance_service import AccessIssuanceService
+from telegram_bot.services.access.access_lifecycle_service import AccessLifecycleService
+from telegram_bot.services.access.access_request_notification_service import (
+    AccessRequestNotificationService,
+)
+from telegram_bot.services.access.telegram_access_request_service import (
+    TelegramAccessRequestService,
 )
 from telegram_bot.services.payments.payment_queue_service import PaymentQueueService
 from telegram_bot.services.payments.payment_status_update_service import (
@@ -83,14 +98,14 @@ from telegram_bot.services.subscriptions.subscription_provisioning_service impor
 from telegram_bot.services.subscriptions.standard_user_subscription_service import (
     StandardUserSubscriptionService,
 )
-from telegram_bot.services.subscriptions.whitelist_provisioning_service import (
-    WhiteListProvisioningService,
+from telegram_bot.services.subscriptions.traffic_limited_provisioning_service import (
+    TrafficLimitedProvisioningService,
 )
-from telegram_bot.services.subscriptions.whitelist_traffic_sync_service import (
-    WhiteListTrafficSyncService,
+from telegram_bot.services.subscriptions.traffic_limited_sync_service import (
+    TrafficLimitedSyncService,
 )
-from telegram_bot.services.subscriptions.whitelist_traffic_service import (
-    WhiteListTrafficService,
+from telegram_bot.services.subscriptions.traffic_limited_service import (
+    TrafficLimitedService,
 )
 from telegram_bot.services.subscriptions.subscription_reminder_service import (
     SubscriptionReminderService,
@@ -113,6 +128,7 @@ class TelegramBotApp:
     instructions_handler: HelpHandler
     payment_command_handler: PaymentCommandHandler
     subscription_menu_handler: SubscriptionMenuHandler
+    subscription_access_request_handler: SubscriptionAccessRequestHandler
     referral_menu_handler: ReferralMenuHandler
     admin_command_handler: AdminCommandHandler
     payment_status_checker: PaymentStatusChecker
@@ -120,9 +136,10 @@ class TelegramBotApp:
     referral_start_handler: ReferralStartHandler
     subscription_trial_handler: SubscriptionTrialHandler
     reminder_service: SubscriptionReminderService
-    subscription_news_channel_handler: SubscriptionNewsChannelHandler
+    subscription_info_channel_handler: SubscriptionInfoChannelHandler
     subscription_promo_handler: SubscriptionPromoHandler
-    whitelist_traffic_sync_service: WhiteListTrafficSyncService
+    traffic_limited_sync_service: TrafficLimitedSyncService
+    access_lifecycle_service: AccessLifecycleService
 
 
 def _build_redis_client(redis_url: str, worker_pop_timeout_seconds: int) -> AsyncRedisClient:
@@ -134,13 +151,19 @@ def _build_redis_client(redis_url: str, worker_pop_timeout_seconds: int) -> Asyn
 
 def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp:
     runtime_settings = settings or load_settings()
-    product_features = get_product_feature_settings()
+    product_features = get_effective_product_feature_settings()
+    traffic_limited_config_enabled = (
+        product_features.traffic_limited_config_enabled and bool(TRAFFIC_LIMITED_API_SERVERS)
+    )
 
     user_repository = TelegramUserRepository()
     referral_repository = ReferralRepository()
     payment_repository = PaymentRepository()
     promo_code_repository = PromoCodeRepository()
     promo_code_usage_repository = PromoCodeUsageRepository()
+    access_grant_repository = AccessGrantRepository()
+    access_registry_repository = AccessRegistryRepository()
+    access_request_repository = AccessRequestRepository()
 
     timestamp_utils = TimestampUtils()
     jwt_encoder = JWTEncoder(
@@ -150,14 +173,11 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
     )
     uuid_generator = UUIDGenerator()
     json_builder = JSONBuilder()
-    payment_sync_service = PaymentSyncService(
-        RolloutFeatureFlags(db_dual_write_payments=True)
+    growth_service = GrowthService(
+        RuntimeSyncFlags(growth_sync_enabled=True)
     )
-    growth_sync_service = GrowthSyncService(
-        RolloutFeatureFlags(db_dual_write_growth=True)
-    )
-    vpn_topology_sync_service = VpnTopologySyncService(
-        RolloutFeatureFlags(db_dual_write_vpn_topology=True)
+    vpn_topology_service = VpnTopologyService(
+        RuntimeSyncFlags(vpn_topology_sync_enabled=True)
     )
 
     client_manager = ClientManager(
@@ -165,7 +185,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         timestamp=timestamp_utils,
         jsonutils=json_builder,
         uuidgen=uuid_generator,
-        topology_sync_service=vpn_topology_sync_service,
+        topology_service=vpn_topology_service,
     )
 
     user_subscription_service = SubscriptionProvisioningService(
@@ -184,14 +204,14 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         timestamp=timestamp_utils,
         uuidgen=uuid_generator,
     )
-    whitelist_provisioning_service = WhiteListProvisioningService(
+    traffic_limited_provisioning_service = TrafficLimitedProvisioningService(
         repo=user_repository,
         timestamp=timestamp_utils,
         client_manager=client_manager,
         uuidgen=uuid_generator,
     )
-    whitelist_traffic_service = WhiteListTrafficService(
-        provisioning_service=whitelist_provisioning_service,
+    traffic_limited_service = TrafficLimitedService(
+        provisioning_service=traffic_limited_provisioning_service,
         timestamp=timestamp_utils,
         client_manager=client_manager,
     )
@@ -205,7 +225,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         ),
         secret=runtime_settings.jwt.secret,
     )
-    whitelist_traffic_sync_service = WhiteListTrafficSyncService(
+    traffic_limited_sync_service = TrafficLimitedSyncService(
         client_manager=client_manager,
     )
 
@@ -215,7 +235,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         repo_user=user_repository,
         timestamp=timestamp_utils,
         client=client_manager,
-        sync_service=growth_sync_service,
+        growth_service=growth_service,
     )
     referral_registration_service = ReferralRegistrationService(
         repo=referral_repository,
@@ -224,7 +244,6 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         promo_usage_repo=promo_code_usage_repository,
         validator=referral_validator_service,
         bonuses=referral_bonus_service,
-        sync_service=growth_sync_service,
     )
     referral_stats_service = ReferralStatsService(repo=referral_repository)
 
@@ -237,6 +256,36 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         instruction=instructions_handler,
         user_subscription_info_service=user_subscription_info_service,
         timestamp=timestamp_utils,
+    )
+    access_issuance_service = AccessIssuanceService(
+        access_grant_repository=access_grant_repository,
+        subscription_flow_service=subscription_flow_service,
+        traffic_limited_service=traffic_limited_service,
+        standard_user_subscription_service=standard_user_subscription_service,
+    )
+    access_lifecycle_service = AccessLifecycleService(
+        access_grant_repository=access_grant_repository,
+        access_registry_repository=access_registry_repository,
+        access_issuance_service=access_issuance_service,
+        standard_user_subscription_service=standard_user_subscription_service,
+        traffic_limited_service=traffic_limited_service,
+    )
+    access_request_service = AccessRequestService(
+        access_request_repository=access_request_repository,
+        access_grant_repository=access_grant_repository,
+        access_issuance_service=access_issuance_service,
+        access_registry_service=AccessRegistryService(
+            access_registry_repository=access_registry_repository,
+            access_grant_repository=access_grant_repository,
+        ),
+        notification_service=AccessRequestNotificationService(
+            telegram_link_service=telegram_link_service,
+        ),
+    )
+    telegram_access_request_service = TelegramAccessRequestService(
+        user_repository=user_repository,
+        access_request_service=access_request_service,
+        access_grant_repository=access_grant_repository,
     )
 
     referral_start_handler = ReferralStartHandler(
@@ -259,19 +308,26 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
     referral_menu_handler = ReferralMenuHandler(stats_service=referral_stats_service)
     subscription_menu_handler = SubscriptionMenuHandler(
         repo=user_repository,
-        whitelist_traffic_service=whitelist_traffic_service,
+        traffic_limited_service=traffic_limited_service,
         commerce_enabled=product_features.commerce_enabled,
-        traffic_limited_config_enabled=product_features.traffic_limited_config_enabled,
+        access_requests_enabled=product_features.access_requests_enabled,
+        standard_config_enabled=product_features.standard_config_enabled,
+        traffic_limited_config_enabled=traffic_limited_config_enabled,
+    )
+    subscription_access_request_handler = SubscriptionAccessRequestHandler(
+        service=telegram_access_request_service,
+        standard_config_enabled=product_features.standard_config_enabled,
+        traffic_limited_config_enabled=traffic_limited_config_enabled,
     )
     subscription_trial_handler = SubscriptionTrialHandler(
         subscription_flow_service=subscription_flow_service,
         user_subscription_info_service=user_subscription_info_service,
         start_handler=start_handler,
         telegram_link_service=telegram_link_service,
-        whitelist_traffic_service=whitelist_traffic_service,
+        traffic_limited_service=traffic_limited_service,
         subscription_service=user_subscription_service,
     )
-    subscription_news_channel_handler = SubscriptionNewsChannelHandler(
+    subscription_info_channel_handler = SubscriptionInfoChannelHandler(
         repo=user_repository,
         subscription_flow_service=subscription_flow_service,
         subscription_menu_handler=subscription_menu_handler,
@@ -281,7 +337,6 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         start_handler=start_handler,
         promo_repo=promo_code_usage_repository,
         promo_code_repo=promo_code_repository,
-        sync_service=growth_sync_service,
     )
 
     payment_gateways = build_demo_payment_gateways(uuid_generator)
@@ -330,10 +385,8 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         dedupe_prefix=runtime_settings.payments.dedupe_prefix,
     )
     payment_processing_service = PaymentProcessingService(
-        subscription_manager=subscription_flow_service,
+        access_issuance_service=access_issuance_service,
         bonuses=referral_bonus_service,
-        whitelist_traffic_service=whitelist_traffic_service,
-        standard_user_subscription_service=standard_user_subscription_service,
         referrals_enabled=product_features.referrals_enabled,
     )
     payment_fulfillment_service = PaymentFulfillmentService(
@@ -347,14 +400,12 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         worker_pop_timeout_seconds=runtime_settings.payments.worker_pop_timeout_seconds,
         dedupe_ttl_seconds=runtime_settings.payments.dedupe_ttl_seconds,
         telegram_link_service=telegram_link_service,
-        sync_service=payment_sync_service,
     )
     payment_status_checker = PaymentStatusChecker(
         repo=payment_repository,
         gateways=payment_gateways,
         payment_fulfillment_service=payment_fulfillment_service,
         scan_interval_seconds=runtime_settings.payments.status_scan_interval_seconds,
-        sync_service=payment_sync_service,
     )
 
     admin_command_handler = AdminCommandHandler(
@@ -364,6 +415,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         timestamp=timestamp_utils,
         payment_queue_service=payment_queue_service,
         jwt_encoder=jwt_encoder,
+        access_request_service=access_request_service,
     )
 
     return TelegramBotApp(
@@ -375,6 +427,7 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         instructions_handler=instructions_handler,
         payment_command_handler=payment_command_handler,
         subscription_menu_handler=subscription_menu_handler,
+        subscription_access_request_handler=subscription_access_request_handler,
         referral_menu_handler=referral_menu_handler,
         admin_command_handler=admin_command_handler,
         payment_status_checker=payment_status_checker,
@@ -382,7 +435,8 @@ def build_bot_app(settings: TelegramBotSettings | None = None) -> TelegramBotApp
         referral_start_handler=referral_start_handler,
         subscription_trial_handler=subscription_trial_handler,
         reminder_service=reminder_service,
-        subscription_news_channel_handler=subscription_news_channel_handler,
+        subscription_info_channel_handler=subscription_info_channel_handler,
         subscription_promo_handler=subscription_promo_handler,
-        whitelist_traffic_sync_service=whitelist_traffic_sync_service,
+        traffic_limited_sync_service=traffic_limited_sync_service,
+        access_lifecycle_service=access_lifecycle_service,
     )

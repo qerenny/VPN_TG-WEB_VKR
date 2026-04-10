@@ -32,8 +32,8 @@ class PaymentCommandHandler:
         self.repo = repo
         self.timestamp = timestamp
         self.gateway_labels = {
-            "yookassa": messages.get_random_message("payments_pay_by_card"),
-            "cryptopay": messages.get_random_message("payments_pay_by_crypto"),
+            "external_card": messages.get_random_message("payments_pay_by_card"),
+            "external_wallet": messages.get_random_message("payments_pay_by_wallet"),
             **(gateway_labels or {}),
         }
 
@@ -42,13 +42,13 @@ class PaymentCommandHandler:
         if int(product.get("amount", 0) or 0) <= 0:
             await bot.send_message(
                 chat_id=message.chat.id,
-                text="Цена для этого продукта пока не настроена. Сначала выстави стоимость пакета в каталоге планов и bot config.",
+                text="Этот вариант доступа временно недоступен для оплаты.",
             )
             return
 
         markup = InlineKeyboardMarkup()
         method_order = list(self.gateways)
-        method_order.sort(key=lambda method: {"yookassa": 0, "cryptopay": 1}.get(method, 10))
+        method_order.sort(key=lambda method: {"external_card": 0, "external_wallet": 1}.get(method, 10))
         for method in method_order:
             label = self.gateway_labels.get(method, method.replace("_", " ").title())
             markup.row(

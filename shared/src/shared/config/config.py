@@ -1,12 +1,44 @@
-import yaml
-from pathlib import Path
 import json
-import os
-from urllib.parse import urlparse
 import ipaddress
+import os
+from pathlib import Path
+from urllib.parse import urlparse
 
-CONFIG_OVERRIDE_ENV_VAR = "APP_CONFIG_PATH"
-LEGACY_CONFIG_OVERRIDE_ENV_VAR = "NOWMEOW_CONFIG_PATH"
+from dotenv import dotenv_values
+
+CONFIG_OVERRIDE_ENV_VAR = "REMOTE_ACCESS_CONFIG_PATH"
+CONFIG_OVERRIDE_FILE_ENV_VAR = "REMOTE_ACCESS_CONFIG_OVERRIDE_PATH"
+LEGACY_CONFIG_ENV_PREFIX = "REMOTE_ACCESS__"
+CONFIG_ENV_ALLOWED_ROOTS = {
+    "admin",
+    "auth",
+    "backend",
+    "bot",
+    "db",
+    "deploy",
+    "features",
+    "frontend",
+    "images",
+    "inbound",
+    "jwt",
+    "logger",
+    "mail",
+    "payments",
+    "plans",
+    "product",
+    "redis",
+    "referrals",
+    "sentry",
+    "servers",
+    "traffic_limited_servers",
+    "vpn_locations",
+}
+ENV_FILE_CANDIDATES = (
+    ".env.local",
+    ".env",
+    ".env.production",
+    ".env.example",
+)
 
 
 def _as_bool(value, default: bool = False) -> bool:
@@ -20,42 +52,159 @@ def _as_bool(value, default: bool = False) -> bool:
 
 
 def find_env_file(
-    preferred_name="local_env.yaml",
-    pattern="*_env.yaml",
-    max_depth=5,
+    preferred_name: str = ".env.local",
+    max_depth: int = 5,
 ) -> Path:
     path = Path(__file__).resolve()
     for parent in path.parents:
-        yaml_files = [candidate for candidate in parent.glob(pattern) if candidate.is_file()]
-        legacy_env = parent / "env.yaml"
-
-        if yaml_files:
-            # Если среди найденных есть preferred_name — возвращаем его
-            for file in yaml_files:
-                if file.name == preferred_name:
-                    return file
-
-            # Если preferred_name не найден, возвращаем первый попавшийся
-            return yaml_files[0]
-
-        # Legacy fallback for old CI/test setups.
-        if legacy_env.is_file():
-            return legacy_env
-
-        # Ограничение глубины
+        candidates = [preferred_name, *[name for name in ENV_FILE_CANDIDATES if name != preferred_name]]
+        for candidate_name in candidates:
+            candidate = parent / candidate_name
+            if candidate.is_file():
+                return candidate
         max_depth -= 1
         if max_depth == 0:
             break
 
     raise FileNotFoundError(
-        f"No {pattern} or legacy env.yaml found in parent directories."
+        f"No supported env/config file found in parent directories. "
+        f"Tried: {', '.join(dict.fromkeys([preferred_name, *ENV_FILE_CANDIDATES]))}"
     )
+
+
+def find_env_override_file(base_path: Path) -> Path | None:
+    explicit_override = os.getenv(CONFIG_OVERRIDE_FILE_ENV_VAR, "").strip()
+    if explicit_override:
+        override_path = Path(explicit_override).expanduser().resolve()
+        if not override_path.exists():
+            raise FileNotFoundError(
+                f"{CONFIG_OVERRIDE_FILE_ENV_VAR} points to missing file: {override_path}"
+            )
+        if not override_path.is_file():
+            raise IsADirectoryError(
+                f"{CONFIG_OVERRIDE_FILE_ENV_VAR} must point to a file, got: {override_path}"
+            )
+        return override_path
+
+    candidate_names = (
+        f"{base_path.name}.override",
+        ".env.override",
+    )
+    for candidate_name in candidate_names:
+        candidate_path = base_path.parent / candidate_name
+        if candidate_path.is_file():
+            return candidate_path
+    return None
+
+
+def _normalize_env_path(parts: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for part in parts:
+        stripped = str(part or "").strip()
+        if not stripped:
+            continue
+        normalized.append(stripped if stripped.isdigit() else stripped.lower())
+    return normalized
+
+
+def _extract_config_key_path(raw_key: str) -> list[str]:
+    normalized_key = str(raw_key or "").strip()
+    if not normalized_key:
+        return []
+
+    if normalized_key.startswith(LEGACY_CONFIG_ENV_PREFIX):
+        return _normalize_env_path(
+            normalized_key[len(LEGACY_CONFIG_ENV_PREFIX):].split("__")
+        )
+
+    if "__" not in normalized_key:
+        return []
+
+    parts = _normalize_env_path(normalized_key.split("__"))
+    if not parts or parts[0] not in CONFIG_ENV_ALLOWED_ROOTS:
+        return []
+    return parts
+
+
+def _build_nested_config(flat_values: dict[str, str]) -> dict:
+    root: dict = {}
+
+    def make_container(next_part: str | None, remaining_count: int):
+        if next_part is not None and next_part.isdigit() and remaining_count > 1:
+            return []
+        return {}
+
+    def set_path(container, parts: list[str], value: str) -> None:
+        head, *tail = parts
+        is_index = head.isdigit()
+
+        if isinstance(container, list):
+            if not is_index:
+                raise ValueError(f"Expected numeric list index in env path, got: {head}")
+            index = int(head)
+            while len(container) <= index:
+                container.append(None)
+            if not tail:
+                container[index] = value
+                return
+            if container[index] is None:
+                container[index] = make_container(tail[0], len(tail))
+            set_path(container[index], tail, value)
+            return
+
+        if not tail:
+            container[head] = value
+            return
+
+        if head not in container or container[head] is None:
+            container[head] = make_container(tail[0], len(tail))
+        set_path(container[head], tail, value)
+
+    for raw_key, raw_value in flat_values.items():
+        if raw_value is None:
+            continue
+        path = _extract_config_key_path(raw_key)
+        if not path:
+            continue
+        set_path(root, path, str(raw_value))
+
+    return root
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    return {
+        str(key): str(value)
+        for key, value in dotenv_values(path).items()
+        if key and value is not None
+    }
+
+
+def _load_runtime_env_overrides() -> dict[str, str]:
+    return {
+        str(key): str(value)
+        for key, value in os.environ.items()
+        if _extract_config_key_path(key)
+        if value is not None
+    }
+
+
+def _load_env_config(path: Path) -> dict:
+    merged_values: dict[str, str] = {}
+    merged_values.update(_read_env_file(path))
+
+    override_path = find_env_override_file(path)
+    if override_path is not None:
+        merged_values.update(_read_env_file(override_path))
+
+    merged_values.update(_load_runtime_env_overrides())
+    return _build_nested_config(merged_values)
+
+
+def _load_config(path: Path) -> dict:
+    return _load_env_config(path)
 
 config_override_env_var = CONFIG_OVERRIDE_ENV_VAR
 config_override = os.getenv(CONFIG_OVERRIDE_ENV_VAR, "").strip()
-if not config_override:
-    config_override_env_var = LEGACY_CONFIG_OVERRIDE_ENV_VAR
-    config_override = os.getenv(LEGACY_CONFIG_OVERRIDE_ENV_VAR, "").strip()
 
 if config_override:
     CONFIG_PATH = Path(config_override).expanduser().resolve()
@@ -71,8 +220,7 @@ else:
     CONFIG_PATH = find_env_file()
 
 
-with open(CONFIG_PATH, "r") as f:
-    config = yaml.safe_load(f)
+config = _load_config(CONFIG_PATH)
 
 
 def _get_config_section(name: str) -> dict:
@@ -85,6 +233,42 @@ def _config_text(section: dict, key: str, default: str) -> str:
     return str(value if value is not None else default).strip()
 
 
+def _config_json_list(section: dict, key: str, default: list[int] | None = None) -> list:
+    raw_value = section.get(key, default or [])
+    if isinstance(raw_value, list):
+        return raw_value
+
+    normalized = str(raw_value or "").strip()
+    if not normalized:
+        return list(default or [])
+
+    try:
+        parsed = json.loads(normalized)
+    except json.JSONDecodeError:
+        return [
+            int(item.strip())
+            for item in normalized.split(",")
+            if item.strip().lstrip("-").isdigit()
+        ]
+
+    return parsed if isinstance(parsed, list) else list(default or [])
+
+
+def _is_required_placeholder(value: object) -> bool:
+    normalized = str(value or "").strip()
+    return normalized.startswith("__REQUIRED_") and normalized.endswith("__")
+
+
+def _is_effective_text(value: object) -> bool:
+    normalized = str(value or "").strip()
+    return bool(normalized) and not _is_required_placeholder(normalized)
+
+
+def _build_telegram_link(username: str) -> str:
+    normalized = str(username or "").strip().lstrip("@")
+    return f"https://t.me/{normalized}" if normalized else ""
+
+
 _PRODUCT_CONFIG = _get_config_section("product")
 PRODUCT_NAME = _config_text(_PRODUCT_CONFIG, "name", "Remote Access Service")
 PRODUCT_REDIS_PREFIX = _config_text(_PRODUCT_CONFIG, "redis_prefix", "remote_access")
@@ -95,6 +279,18 @@ _FEATURES_CONFIG = _get_config_section("features")
 FEATURE_COMMERCE_ENABLED = _as_bool(
     _FEATURES_CONFIG.get("commerce_enabled"),
     default=True,
+)
+FEATURE_ACCESS_REQUESTS_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("access_requests_enabled"),
+    default=False,
+)
+FEATURE_ACCESS_REGISTRY_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("access_registry_enabled"),
+    default=False,
+)
+FEATURE_ACCESS_ADMIN_OVERRIDE_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("access_admin_override_enabled"),
+    default=False,
 )
 FEATURE_REFERRALS_ENABLED = _as_bool(
     _FEATURES_CONFIG.get("referrals_enabled"),
@@ -112,9 +308,9 @@ FEATURE_TELEGRAM_BOT_ENABLED = _as_bool(
     _FEATURES_CONFIG.get("telegram_bot_enabled"),
     default=True,
 )
-FEATURE_TELEGRAM_PROXY_ENABLED = _as_bool(
-    _FEATURES_CONFIG.get("telegram_proxy_enabled"),
-    default=False,
+FEATURE_STANDARD_CONFIG_ENABLED = _as_bool(
+    _FEATURES_CONFIG.get("standard_config_enabled"),
+    default=True,
 )
 FEATURE_TRAFFIC_LIMITED_CONFIG_ENABLED = _as_bool(
     _FEATURES_CONFIG.get("traffic_limited_config_enabled"),
@@ -211,9 +407,34 @@ def get_server_inbound_specs(server_config: dict) -> list[dict[str, object]]:
     ]
 
 
+def _is_configured_server(server_config: object) -> bool:
+    if not isinstance(server_config, dict):
+        return False
+
+    required_keys = (
+        "username",
+        "password",
+        "domain",
+        "path",
+        "subscription_path",
+    )
+    return all(_is_effective_text(server_config.get(key)) for key in required_keys)
+
+
+def _filter_server_pool(raw_servers: object) -> dict:
+    if not isinstance(raw_servers, dict):
+        return {}
+
+    return {
+        str(code): server_config
+        for code, server_config in raw_servers.items()
+        if _is_configured_server(server_config)
+    }
+
+
 # ========== SERVERS ==========
-API_SERVERS = config["servers"]
-WHITELIST_API_SERVERS = config.get("whitelist_servers", {})
+API_SERVERS = _filter_server_pool(config.get("servers"))
+TRAFFIC_LIMITED_API_SERVERS = _filter_server_pool(config.get("traffic_limited_servers"))
 VPN_LOCATION_LABELS = _build_vpn_locations(config.get("vpn_locations"))
 if not VPN_LOCATION_LABELS:
     VPN_LOCATION_LABELS = {
@@ -225,24 +446,11 @@ if not VPN_LOCATION_LABELS:
 # ========== INBOUND ==========
 INBOUND_AMOUNT_OF_DEVICES = config["inbound"]["amount_of_devices"]
 
-# ========== CRYPTOPAY ==========
-CRYPTOPAY_TOKEN = _config_text(_get_config_section("cryptopay"), "token", "")
-
-# ========== YOOKASSA ==========
-_YOOKASSA_CONFIG = _get_config_section("yookassa")
-CONFIGURATION_ACCOUNT_ID = _config_text(_YOOKASSA_CONFIG, "account_id", "")
-CONFIGURATION_SECRET_KEY = _config_text(_YOOKASSA_CONFIG, "secret_key", "")
-
 # ========== BOT ==========
 _BOT_CONFIG = _get_config_section("bot")
 BOT_TG_ID = _config_text(_BOT_CONFIG, "tg_id", "")
 BOT_API = _config_text(_BOT_CONFIG, "api", "")
-_BOT_ADMIN_IDS_RAW = _BOT_CONFIG.get("admin_ids", "[]")
-BOT_ADMIN_IDS = (
-    _BOT_ADMIN_IDS_RAW
-    if isinstance(_BOT_ADMIN_IDS_RAW, list)
-    else json.loads(str(_BOT_ADMIN_IDS_RAW))
-)
+BOT_ADMIN_IDS = _config_json_list(_BOT_CONFIG, "admin_ids", default=[])
 BOT_MAINTENANCE_MODE = str(
     _BOT_CONFIG.get("maintenance_mode", False)
 ).strip().lower() in {"1", "true", "yes", "on"}
@@ -254,14 +462,15 @@ BOT_MAINTENANCE_MESSAGE = str(
 ).strip()
 BOT_BONUS_REFERRER_INT = int(_BOT_CONFIG.get("bonus_referrer", 0))
 BOT_BONUS_NEW_USER_INT = int(_BOT_CONFIG.get("bonus_new_user", 0))
-BOT_NEWS_TG_ID = _config_text(_BOT_CONFIG, "news_channel_id", "")
-BOT_NEWS_USERNAME = _config_text(_BOT_CONFIG, "news_channel", "")
+BOT_INFO_CHANNEL_TG_ID = _config_text(_BOT_CONFIG, "info_channel_id", "")
+BOT_INFO_CHANNEL_USERNAME = _config_text(_BOT_CONFIG, "info_channel", "")
 BOT_SUPPORT_TG_ID = _config_text(_BOT_CONFIG, "support", "")
 
-BOT_SUPPORT_TG_LINK = f"https://t.me/{BOT_SUPPORT_TG_ID}"
-BOT_RETURN_URL = f"https://t.me/{BOT_TG_ID}"
+BOT_SUPPORT_TG_LINK = _build_telegram_link(BOT_SUPPORT_TG_ID)
+BOT_RETURN_URL = _build_telegram_link(BOT_TG_ID)
 BOT_REFERRAL_LINK = f"https://t.me/{BOT_TG_ID}?start="
-BOT_NEWS_TG_LINK = f"https://t.me/{BOT_NEWS_USERNAME}"
+BOT_INFO_CHANNEL_TG_LINK = _build_telegram_link(BOT_INFO_CHANNEL_USERNAME)
+BOT_INFO_CHANNEL_ENABLED = bool(BOT_INFO_CHANNEL_TG_ID and BOT_INFO_CHANNEL_TG_LINK)
 
 # ========== IMAGES ==========
 _IMAGES_CONFIG = _get_config_section("images")
@@ -283,21 +492,13 @@ DB_SQL_ECHO = _as_bool(config.get("db", {}).get("sql_echo", False))
 # ========== FRONTEND ==========
 FRONTEND_SUBSCRIPTION_LINK = config["frontend"]["subscription_link"]
 FRONTEND_LINK = config["frontend"]["link"]
+FRONTEND_TELEGRAM_LINK = str(config["frontend"].get("telegram_link", "")).strip()
 FRONTEND_ADMIN_PATH = str(config["frontend"].get("admin_path", "")).strip().strip("/")
-FRONTEND_FAQ_LINK = str(
-    config["frontend"].get("faq_link", "https://docs.example.com/faq/")
-).strip()
-FRONTEND_DEVICES_LINK = str(
-    config["frontend"].get("devices_link", "https://docs.example.com/devices/")
-).strip()
-FRONTEND_ABOUT_LINK = str(
-    config["frontend"].get("about_link", "https://docs.example.com/")
-).strip()
-FRONTEND_TELEGRAM_PROXY_URL = str(
-    config["frontend"].get("telegram_proxy_url", "")
-).strip()
 FRONTEND_HAPP_SUBSCRIPTION_ADD_LINK = str(
     config["frontend"].get("happ_subscription_add_link", "happ://add/")
+).strip()
+FRONTEND_SUBSCRIPTION_CLIENT_NAME = str(
+    config["frontend"].get("subscription_client_name", "Happ")
 ).strip()
 FRONTEND_APP_LINK_HAPP_IOS = str(
     config["frontend"].get(
@@ -309,6 +510,12 @@ FRONTEND_APP_LINK_HAPP_ANDROID = str(
     config["frontend"].get(
         "app_link_happ_android",
         "https://play.google.com/store/apps/details?id=com.happproxy",
+    )
+).strip()
+FRONTEND_APP_LINK_HAPP_ANDROID_APK = str(
+    config["frontend"].get(
+        "app_link_happ_android_apk",
+        "https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk",
     )
 ).strip()
 FRONTEND_APP_LINK_HAPP_WINDOWS = str(
@@ -323,10 +530,40 @@ FRONTEND_APP_LINK_HAPP_MACOS = str(
         "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
     )
 ).strip()
+FRONTEND_APP_LINK_HAPP_MACOS_DMG = str(
+    config["frontend"].get(
+        "app_link_happ_macos_dmg",
+        "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg",
+    )
+).strip()
 FRONTEND_APP_LINK_HAPP_LINUX = str(
     config["frontend"].get(
         "app_link_happ_linux",
         "https://www.happ.su/main/ru",
+    )
+).strip()
+FRONTEND_APP_LINK_HAPP_LINUX_RPM = str(
+    config["frontend"].get(
+        "app_link_happ_linux_rpm",
+        "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.rpm",
+    )
+).strip()
+FRONTEND_APP_LINK_HAPP_APPLE_TV = str(
+    config["frontend"].get(
+        "app_link_happ_apple_tv",
+        "https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274",
+    )
+).strip()
+FRONTEND_APP_LINK_HAPP_ANDROID_TV = str(
+    config["frontend"].get(
+        "app_link_happ_android_tv",
+        FRONTEND_APP_LINK_HAPP_ANDROID,
+    )
+).strip()
+FRONTEND_APP_LINK_HAPP_IOS_GLOBAL = str(
+    config["frontend"].get(
+        "app_link_happ_ios_global",
+        "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215",
     )
 ).strip()
 FRONTEND_APP_LINK_WINDOWS_NEKORAY = str(
@@ -338,37 +575,37 @@ FRONTEND_APP_LINK_WINDOWS_NEKORAY = str(
 FRONTEND_INSTRUCTION_LINK_IOS = str(
     config["frontend"].get(
         "instruction_link_ios",
-        "https://docs.example.com/devices/ios.html",
+        "",
     )
 ).strip()
 FRONTEND_INSTRUCTION_LINK_ANDROID = str(
     config["frontend"].get(
         "instruction_link_android",
-        "https://docs.example.com/devices/android.html",
+        "",
     )
 ).strip()
 FRONTEND_INSTRUCTION_LINK_WINDOWS = str(
     config["frontend"].get(
         "instruction_link_windows",
-        "https://docs.example.com/devices/windows.html",
+        "",
     )
 ).strip()
 FRONTEND_INSTRUCTION_LINK_MACOS = str(
     config["frontend"].get(
         "instruction_link_macos",
-        "https://docs.example.com/devices/macos.html",
+        "",
     )
 ).strip()
 FRONTEND_INSTRUCTION_LINK_LINUX = str(
     config["frontend"].get(
         "instruction_link_linux",
-        "https://docs.example.com/devices/linux.html",
+        "",
     )
 ).strip()
 FRONTEND_INSTRUCTION_LINK_WINDOWS_NEKORAY = str(
     config["frontend"].get(
         "instruction_link_windows_nekoray",
-        "https://docs.example.com/devices/windows-nekoray.html",
+        "",
     )
 ).strip()
 FRONTEND_ADMIN_LINK = (
@@ -379,8 +616,8 @@ FRONTEND_ADMIN_LINK = (
 FRONTEND_TELEGRAM_SUBSCRIPTION_LINK = config["frontend"].get(
     "telegram_subscription_link"
 )
-FRONTEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK = (
-    f"{FRONTEND_TELEGRAM_SUBSCRIPTION_LINK.rstrip('/')}/whitelist"
+FRONTEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK = (
+    f"{FRONTEND_TELEGRAM_SUBSCRIPTION_LINK.rstrip('/')}/traffic_limited"
     if FRONTEND_TELEGRAM_SUBSCRIPTION_LINK
     else None
 )
@@ -394,8 +631,8 @@ BACKEND_TELEGRAM_BASE_LINK = BACKEND_TELEGRAM_SUBSCRIPTION_LINK.rsplit(
     "/subscription/build",
     1,
 )[0]
-BACKEND_TELEGRAM_WHITELIST_SUBSCRIPTION_LINK = (
-    f"{BACKEND_TELEGRAM_BASE_LINK}/subscription/whitelist/build"
+BACKEND_TELEGRAM_TRAFFIC_LIMITED_SUBSCRIPTION_LINK = (
+    f"{BACKEND_TELEGRAM_BASE_LINK}/subscription/traffic-limited/build"
 )
 BACKEND_PREFIX = config["backend"]["prefix"]
 
@@ -407,7 +644,6 @@ ADMIN_PANEL_ENABLED = _as_bool(
 ADMIN_TOKEN = str(
     config.get("admin", {}).get("token")
     or os.getenv("APP_ADMIN_TOKEN", "")
-    or os.getenv("NOWMEOW_ADMIN_TOKEN", "")
 ).strip()
 ADMIN_DEFAULT_ROLE = str(
     config.get("admin", {}).get("default_role", "superadmin")
@@ -573,8 +809,8 @@ REDIS_PAYMENT_WORKER_POP_TIMEOUT_SECONDS = int(
 PAYMENT_STATUS_SCAN_INTERVAL_SECONDS = int(
     config.get("redis", {}).get("payment_status_scan_interval_seconds", 30)
 )
-WHITELIST_TRAFFIC_SYNC_INTERVAL_SECONDS = int(
-    config.get("redis", {}).get("whitelist_traffic_sync_interval_seconds", 120)
+TRAFFIC_LIMITED_SYNC_INTERVAL_SECONDS = int(
+    config.get("redis", {}).get("traffic_limited_sync_interval_seconds", 120)
 )
 PAYMENT_WEBHOOK_TOKEN = str(
     config.get("payments", {}).get("webhook_token", "")
@@ -613,7 +849,7 @@ PAYMENT_DEMO_AUTO_PAID = _as_bool(
 # ========== JWT ==========
 JWT_SECRET = config["jwt"]["secret"]
 JWT_ALGORITHM = config["jwt"]["algorithm"]
-JWT_EXP_MIN = config["jwt"]["exp_min"]
+JWT_EXP_MIN = int(config["jwt"]["exp_min"])
 
 # ========== LOGGER ==========
 TELEGRAM_LOGGER_TOKEN = config["logger"]["telegram_token"]
@@ -651,6 +887,12 @@ def _is_local_or_private_host(hostname: str | None) -> bool:
         return True
     if normalized.endswith(".local"):
         return True
+    if normalized.endswith(".localhost"):
+        return True
+    if normalized in {"example.com", "example.org", "example.net"}:
+        return True
+    if normalized.endswith(".example") or normalized.endswith(".invalid") or normalized.endswith(".test"):
+        return True
 
     try:
         address = ipaddress.ip_address(normalized)
@@ -687,7 +929,11 @@ def extract_url_origin(url: str | None) -> str:
 def get_frontend_allowed_origins() -> list[str]:
     origins: list[str] = []
 
-    for candidate in (FRONTEND_LINK, FRONTEND_TELEGRAM_SUBSCRIPTION_LINK):
+    for candidate in (
+        FRONTEND_LINK,
+        FRONTEND_TELEGRAM_LINK,
+        FRONTEND_TELEGRAM_SUBSCRIPTION_LINK,
+    ):
         origin = extract_url_origin(candidate)
         if origin and origin not in origins:
             origins.append(origin)
@@ -695,6 +941,11 @@ def get_frontend_allowed_origins() -> list[str]:
     return origins
 
 
+FRONTEND_TELEGRAM_LINK = normalize_telegram_button_url(
+    FRONTEND_TELEGRAM_LINK
+    or extract_url_origin(FRONTEND_TELEGRAM_SUBSCRIPTION_LINK)
+    or FRONTEND_LINK
+)
 FRONTEND_TELEGRAM_SUBSCRIPTION_LINK = normalize_telegram_button_url(
     FRONTEND_TELEGRAM_SUBSCRIPTION_LINK or FRONTEND_SUBSCRIPTION_LINK
 )

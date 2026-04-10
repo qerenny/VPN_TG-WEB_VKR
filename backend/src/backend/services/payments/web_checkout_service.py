@@ -12,7 +12,7 @@ from shared.models.payments.plan_model import Plan
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.user_profile_model import UserProfile
 from shared.models.users.web_account_model import WebAccount
-from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_WHITELIST
+from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.timestamp_utils import TimestampUtils
 from shared.infrastructure.payments.payment_repository import (
     PaymentRepository,
@@ -115,7 +115,7 @@ class WebCheckoutService:
                 user_id=int(user_id),
                 tg_id=int(telegram_account.telegram_id) if telegram_account is not None else None,
                 status=str(payment_data["status"]),
-                payload=str(plan.legacy_payload),
+                payload=str(plan.payload),
                 created_at=self.timestamp.current_timestamp(),
                 confirmed=bool(payment_data.get("confirmed", False)),
                 method=str(method).strip().lower(),
@@ -137,7 +137,7 @@ class WebCheckoutService:
     @staticmethod
     def _build_product(plan: Plan) -> dict:
         product_name = get_product_settings().name
-        if str(plan.scope) == PRODUCT_SCOPE_WHITELIST:
+        if str(plan.scope) == PRODUCT_SCOPE_TRAFFIC_LIMITED:
             label = f"Лимит трафика • {plan.name}"
             description = f"{product_name} traffic-limited access: {plan.name}"
         elif str(plan.scope) == PRODUCT_SCOPE_STANDARD:
@@ -149,7 +149,7 @@ class WebCheckoutService:
 
         amount = int(Decimal(plan.price_amount) * 100)
         return {
-            "payload": str(plan.legacy_payload),
+            "payload": str(plan.payload),
             "label": label,
             "description": description,
             "amount": amount,

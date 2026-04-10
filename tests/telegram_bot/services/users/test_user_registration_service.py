@@ -17,14 +17,12 @@ def service_and_mocks():
     repo = AsyncMock()
     timestamp = MagicMock()
     uuidgen = MagicMock()
-    sync_service = AsyncMock()
     service = UserRegistrationService(
         repo=repo,
         timestamp=timestamp,
         uuidgen=uuidgen,
-        sync_service=sync_service,
     )
-    return service, repo, timestamp, uuidgen, sync_service
+    return service, repo, timestamp, uuidgen
 
 
 @pytest.fixture
@@ -35,7 +33,7 @@ def mock_logger():
 
 @pytest.mark.asyncio
 async def test_register_user_creates_new_user(service_and_mocks, mock_logger):
-    service, repo, timestamp, uuidgen, sync_service = service_and_mocks
+    service, repo, timestamp, uuidgen = service_and_mocks
     repo.get.return_value = None
     uuidgen.generate_id.side_effect = ["uid-1", "sub-1"]
     uuidgen.generate_email.return_value = "example.com"
@@ -63,7 +61,7 @@ async def test_register_user_creates_new_user(service_and_mocks, mock_logger):
 
 @pytest.mark.asyncio
 async def test_register_user_uses_username_prefix_when_present(service_and_mocks):
-    service, repo, timestamp, uuidgen, sync_service = service_and_mocks
+    service, repo, timestamp, uuidgen = service_and_mocks
     repo.get.return_value = None
     uuidgen.generate_id.side_effect = ["uid-2", "sub-2"]
     uuidgen.generate_email.return_value = "mail.test"
@@ -82,7 +80,7 @@ async def test_register_user_uses_username_prefix_when_present(service_and_mocks
 
 @pytest.mark.asyncio
 async def test_register_user_skips_existing_user(service_and_mocks, mock_logger):
-    service, repo, _timestamp, uuidgen, sync_service = service_and_mocks
+    service, repo, _timestamp, uuidgen = service_and_mocks
     repo.get.return_value = TelegramUserSnapshot(
         tg_id=42,
         uuid="existing-uuid",
@@ -90,7 +88,7 @@ async def test_register_user_skips_existing_user(service_and_mocks, mock_logger)
         expiration_date=None,
         login_date=1234567890,
         trial_date=None,
-        news_channel_date=None,
+        info_channel_date=None,
         sub_id="sub-existing",
     )
 
@@ -110,7 +108,7 @@ async def test_register_user_skips_existing_user(service_and_mocks, mock_logger)
 
 @pytest.mark.asyncio
 async def test_register_user_propagates_uuid_generation_error(service_and_mocks):
-    service, repo, _timestamp, uuidgen, _sync_service = service_and_mocks
+    service, repo, _timestamp, uuidgen = service_and_mocks
     repo.get.return_value = None
     uuidgen.generate_id.side_effect = RuntimeError("UUID generation failed")
 
@@ -122,7 +120,7 @@ async def test_register_user_propagates_uuid_generation_error(service_and_mocks)
 
 @pytest.mark.asyncio
 async def test_register_user_propagates_repository_error(service_and_mocks):
-    service, repo, _timestamp, _uuidgen, _sync_service = service_and_mocks
+    service, repo, _timestamp, _uuidgen = service_and_mocks
     repo.get.side_effect = RuntimeError("Database query failed")
 
     with pytest.raises(RuntimeError, match="Database query failed"):
@@ -136,7 +134,7 @@ async def test_register_user_handles_duplicate_telegram_account_race(
     service_and_mocks,
     mock_logger,
 ):
-    service, repo, timestamp, uuidgen, _sync_service = service_and_mocks
+    service, repo, timestamp, uuidgen = service_and_mocks
     repo.get.return_value = None
     uuidgen.generate_id.side_effect = ["uid-race", "sub-race"]
     uuidgen.generate_email.return_value = "mail.test"
