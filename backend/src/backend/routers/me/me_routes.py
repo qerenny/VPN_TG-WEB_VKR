@@ -49,7 +49,6 @@ from backend.services.promo.web_promo_service import WebPromoService, PromoError
 from shared.config.settings import (
     ProductFeatureSettings,
     get_effective_product_feature_settings,
-    get_product_feature_settings,
 )
 from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.services.access.access_request_service import AccessRequestService

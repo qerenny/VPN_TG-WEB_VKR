@@ -1,6 +1,5 @@
 from telebot.types import CallbackQuery
 
-from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.presentation.payments.payment_command_handler import PaymentCommandHandler
 from telegram_bot.presentation.subscriptions.subscription_access_request_handler import (

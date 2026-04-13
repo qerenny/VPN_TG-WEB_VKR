@@ -1,6 +1,6 @@
-import axios from 'axios'
-
 import { API_BASE_URL } from './base'
+import { createHttpClient, deleteData, getData, getItems, patchData, postData, postItems } from './http'
+import type { AccessRequestItem, FeatureFlags } from './types'
 
 export interface AdminActionPayload {
   action_type: string
@@ -11,19 +11,7 @@ export interface AdminActionPayload {
   params?: Record<string, unknown>
 }
 
-export interface AdminFeatureFlags {
-  access_requests_enabled: boolean
-  access_registry_enabled: boolean
-  access_admin_override_enabled: boolean
-  commerce_enabled: boolean
-  referrals_enabled: boolean
-  promos_enabled: boolean
-  web_purchase_enabled: boolean
-  telegram_bot_enabled: boolean
-  mail_enabled: boolean
-  standard_config_enabled: boolean
-  traffic_limited_config_enabled: boolean
-}
+export interface AdminFeatureFlags extends FeatureFlags {}
 
 export interface AdminOverview {
   actor?: string
@@ -35,24 +23,7 @@ export interface AdminOverview {
   sources?: Record<string, string>
 }
 
-export interface AdminAccessRequestItem {
-  id: number
-  user_id: number
-  requested_template_code: string | null
-  requested_template_label?: string | null
-  approved_template_label?: string | null
-  access_grant_id: number | null
-  channel: string
-  request_kind: string
-  status: string
-  comment: string | null
-  review_note: string | null
-  reviewed_by_actor: string | null
-  requested_at: string
-  reviewed_at: string | null
-  expires_at: string | null
-  metadata: Record<string, unknown>
-}
+export interface AdminAccessRequestItem extends AccessRequestItem {}
 
 export interface AdminAccessRegistryItem {
   id: number
@@ -75,79 +46,67 @@ export interface AdminAccessRegistryItem {
   metadata: Record<string, unknown>
 }
 
-const adminApi = axios.create({
-  baseURL: `${API_BASE_URL}/admin`,
-  withCredentials: true,
-})
+const adminApi = createHttpClient(`${API_BASE_URL}/admin`)
 
 export async function loginAdmin(token: string, actor?: string) {
-  const response = await adminApi.post('/session/login', {
+  return postData(adminApi, '/session/login', {
     token,
     actor: actor || 'web-admin',
   })
-  return response.data
 }
 
 export async function logoutAdmin() {
-  await adminApi.post('/session/logout')
+  await postData(adminApi, '/session/logout')
 }
 
 export async function fetchAdminOverview() {
-  const response = await adminApi.get('/overview')
-  return response.data as AdminOverview
+  return getData<AdminOverview>(adminApi, '/overview')
 }
 
 export async function searchAdminUsers(query?: string) {
-  const response = await adminApi.get('/users', {
+  return getItems(adminApi, '/users', {
     params: {
       q: query || undefined,
     },
   })
-  return response.data.items
 }
 
 export async function fetchAdminUser(userId: number) {
-  const response = await adminApi.get(`/users/${userId}`)
-  return response.data
+  return getData(adminApi, `/users/${userId}`)
 }
 
 export async function fetchAdminAudit(targetTgId?: number) {
-  const response = await adminApi.get('/audit', {
+  return getItems(adminApi, '/audit', {
     params: {
       target_tg_id: targetTgId || undefined,
     },
   })
-  return response.data.items
 }
 
 export async function runAdminAction(payload: AdminActionPayload) {
-  const response = await adminApi.post('/actions', payload)
-  return response.data
+  return postData(adminApi, '/actions', payload)
 }
 
 export async function fetchAdminAccessRequests(status?: string, limit = 100) {
-  const response = await adminApi.get('/access-requests', {
+  return getItems<AdminAccessRequestItem>(adminApi, '/access-requests', {
     params: {
       status: status || undefined,
       limit,
     },
   })
-  return response.data.items as AdminAccessRequestItem[]
 }
 
 export async function reviewAdminAccessRequest(
   requestId: number,
   payload: { decision: 'approve' | 'reject'; review_note?: string | null; template_code?: string | null },
 ) {
-  const response = await adminApi.post(`/access-requests/${requestId}/review`, payload)
-  return response.data as AdminAccessRequestItem
+  return postData<AdminAccessRequestItem, typeof payload>(adminApi, `/access-requests/${requestId}/review`, payload)
 }
 
 export async function fetchAdminAccessRegistry(limit = 200) {
-  const response = await adminApi.get('/access-registry', {
+  return getItems<AdminAccessRegistryItem>(adminApi, '/access-registry', {
     params: { limit },
   })
-  return response.data.items as AdminAccessRegistryItem[]
 }
 
 export async function upsertAdminAccessRegistry(payload: {
@@ -158,8 +117,7 @@ export async function upsertAdminAccessRegistry(payload: {
   is_active?: boolean
   note?: string | null
 }) {
-  const response = await adminApi.post('/access-registry', payload)
-  return response.data as AdminAccessRegistryItem
+  return postData<AdminAccessRegistryItem, typeof payload>(adminApi, '/access-registry', payload)
 }
 
 export async function updateAdminAccessRegistry(entryId: number, payload: {
@@ -170,19 +128,7 @@ export async function updateAdminAccessRegistry(entryId: number, payload: {
   is_active?: boolean
   note?: string | null
 }) {
-  const response = await adminApi.patch(`/access-registry/${entryId}`, payload)
-  return response.data as AdminAccessRegistryItem
-}
-
-export async function toggleAdminAccessRegistry(entryId: number, is_active: boolean, entry?: Partial<AdminAccessRegistryItem>) {
-  return updateAdminAccessRegistry(entryId, {
-    identity_type: String(entry?.identity_type || ''),
-    identity_value: String(entry?.identity_value || ''),
-    auto_approve: Boolean(entry?.auto_approve),
-    allow_auto_renew: Boolean(entry?.allow_auto_renew),
-    is_active,
-    note: entry?.note || undefined,
-  })
+  return patchData<AdminAccessRegistryItem, typeof payload>(adminApi, `/access-registry/${entryId}`, payload)
 }
 
 export async function batchUpsertAdminAccessRegistry(payload: {
@@ -192,23 +138,20 @@ export async function batchUpsertAdminAccessRegistry(payload: {
   is_active?: boolean
   note?: string | null
 }) {
-  const response = await adminApi.post('/access-registry/batch', payload)
-  return response.data.items as AdminAccessRegistryItem[]
+  return postItems<AdminAccessRegistryItem, typeof payload>(adminApi, '/access-registry/batch', payload)
 }
 
 export async function disableAndRevokeAdminAccessRegistry(entryId: number) {
-  const response = await adminApi.post(`/access-registry/${entryId}/disable-and-revoke`)
-  return response.data as {
+  return postData<{
     entry: AdminAccessRegistryItem
     matched_users: number
     revoked_grants: number
     runtime_revocations: number
-  }
+  }>(adminApi, `/access-registry/${entryId}/disable-and-revoke`)
 }
 
 export async function deleteAdminAccessRegistry(entryId: number) {
-  const response = await adminApi.delete(`/access-registry/${entryId}`)
-  return response.data as { status: string }
+  return deleteData<{ status: string }>(adminApi, `/access-registry/${entryId}`)
 }
 
 export interface AdminPromoCode {
@@ -237,16 +180,13 @@ export interface AdminPromoCreatePayload {
 }
 
 export async function fetchAdminPromos(limit = 100) {
-  const response = await adminApi.get('/promos', { params: { limit } })
-  return response.data.items as AdminPromoCode[]
+  return getItems<AdminPromoCode>(adminApi, '/promos', { params: { limit } })
 }
 
 export async function createAdminPromo(payload: AdminPromoCreatePayload) {
-  const response = await adminApi.post('/promos', payload)
-  return response.data as AdminPromoCode
+  return postData<AdminPromoCode, AdminPromoCreatePayload>(adminApi, '/promos', payload)
 }
 
 export async function toggleAdminPromo(promoId: number, isActive: boolean) {
-  const response = await adminApi.patch(`/promos/${promoId}`, { is_active: isActive })
-  return response.data
+  return patchData(adminApi, `/promos/${promoId}`, { is_active: isActive })
 }

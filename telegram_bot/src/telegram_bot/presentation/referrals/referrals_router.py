@@ -1,6 +1,5 @@
 from telebot.types import CallbackQuery
 
-from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.presentation.referrals.referral_menu_handler import ReferralMenuHandler
 

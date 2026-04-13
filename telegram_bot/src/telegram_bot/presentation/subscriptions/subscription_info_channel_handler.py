@@ -3,7 +3,6 @@ from telebot import types
 from telebot.types import CallbackQuery
 
 from shared.infrastructure.users.telegram_user_repository import TelegramUserRepository
-from shared.utils.logging_utils import logger
 from telegram_bot.services.subscriptions.subscription_flow_service import SubscriptionFlowService
 from telegram_bot.bot import bot
 from telegram_bot.shared.texts import messages

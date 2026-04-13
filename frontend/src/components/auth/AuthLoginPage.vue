@@ -6,13 +6,11 @@ import { useToast } from 'vue-toastification'
 
 import { loginViaTelegramLink, loginWeb } from '../../api/auth'
 import { consumePublicLink, fetchPublicLinkPreview, type PublicLinkPreview } from '../../api/linking'
-import { refreshSession, useSessionState } from '../../stores/session'
+import { refreshSession } from '../../stores/session'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const session = useSessionState()
-
 const email = ref(String(route.query.email || ''))
 const password = ref('')
 const loading = ref(false)

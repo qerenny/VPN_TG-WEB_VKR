@@ -1,13 +1,13 @@
 import type { WebCatalogPlan } from '../api/account'
 
 export const ACCESS_TEMPLATE_LABELS: Record<string, string> = {
-  month_1: '1 месяц · Базовая конфигурация',
-  month_3: '3 месяца · Базовая конфигурация',
-  month_6: '6 месяцев · Базовая конфигурация',
-  year_1: '12 месяцев · Базовая конфигурация',
-  traffic_limited_15gb: '15 GB · Лимит трафика',
-  traffic_limited_35gb: '35 GB · Лимит трафика',
-  traffic_limited_80gb: '80 GB · Лимит трафика',
+  month_1: '🔑 1 месяц · Базовая',
+  month_3: '🛡️ 3 месяца · Базовая',
+  month_6: '⭐ 6 месяцев · Базовая',
+  year_1: '👑 12 месяцев · Базовая',
+  traffic_limited_15gb: '📦 15 GB',
+  traffic_limited_35gb: '📦 35 GB',
+  traffic_limited_80gb: '📦 80 GB',
 }
 
 export const REQUESTABLE_ACCESS_TEMPLATE_CODES = [
@@ -21,16 +21,16 @@ export const REQUESTABLE_ACCESS_TEMPLATE_CODES = [
 ] as const
 
 const PLAN_NAME_RU: Record<string, string> = {
-  '1 month access': 'Доступ на 1 месяц',
-  '3 months access': 'Доступ на 3 месяца',
-  '6 months access': 'Доступ на 6 месяцев',
-  '12 months access': 'Доступ на 12 месяцев',
-  'Trial 3 days': 'Пробный период 3 дня',
+  '1 month access': '🔑 1 месяц',
+  '3 months access': '🛡️ 3 месяца',
+  '6 months access': '⭐ 6 месяцев',
+  '12 months access': '👑 12 месяцев',
+  'Trial 3 days': 'Пробный доступ 3 дня',
   'News bonus 4 days': 'Бонус за канал 4 дня',
-  'Traffic-limited trial 2 GB': 'Пробная конфигурация 2 ГБ',
-  'Traffic-limited access 15 GB': 'Лимит трафика 15 ГБ',
-  'Traffic-limited access 35 GB': 'Лимит трафика 35 ГБ',
-  'Traffic-limited access 80 GB': 'Лимит трафика 80 ГБ',
+  'Traffic-limited trial 2 GB': '📦 Пробный 2 ГБ',
+  'Traffic-limited access 15 GB': '📦 15 ГБ',
+  'Traffic-limited access 35 GB': '📦 35 ГБ',
+  'Traffic-limited access 80 GB': '📦 80 ГБ',
 }
 
 export function localizePlanName(name: string) {
@@ -49,9 +49,9 @@ export function buildAccessTemplateLabelFromPlan(plan: Pick<WebCatalogPlan, 'cod
     return ACCESS_TEMPLATE_LABELS[normalizedCode]
   }
   if (String(plan.scope || '').trim().toLowerCase() === 'traffic_limited') {
-    return `${plan.human_view_traffic_quota || localizePlanName(plan.name)} · Лимит трафика`
+    return `📦 ${plan.human_view_traffic_quota || localizePlanName(plan.name)}`
   }
-  return `${localizePlanName(plan.name)} · Базовая конфигурация`
+  return `${localizePlanName(plan.name)} · Базовая`
 }
 
 export function buildAccessTemplateOptions(options?: {

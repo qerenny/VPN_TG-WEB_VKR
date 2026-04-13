@@ -3,7 +3,6 @@ from zoneinfo import ZoneInfo
 
 from telebot.types import CallbackQuery
 
-from shared.product_constants import PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.presentation.start.start_handler import StartHandler

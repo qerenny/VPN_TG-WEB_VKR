@@ -12,7 +12,11 @@ from shared.product_constants import ACCESS_REQUEST_KIND_NEW_ACCESS, ACCESS_REQU
 from shared.utils.access_template_labels import format_access_template_label
 from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
-from telegram_bot.shared.config.navigation import BACK_TO_SUBSCRIPTIONS, MAIN_MENU
+from telegram_bot.shared.keyboards import (
+    add_access_request_back_button,
+    add_main_menu_button,
+    add_subscription_navigation_buttons,
+)
 from telegram_bot.shared.texts import messages
 from telegram_bot.shared.utils.menu_rendering import render_photo_menu
 from telegram_bot.services.access.telegram_access_request_service import TelegramAccessRequestService
@@ -97,8 +101,7 @@ class SubscriptionAccessRequestHandler:
                 markup.add(
                     types.InlineKeyboardButton(label, callback_data=f"sub_access_request_scope:{scope}"),
                 )
-        markup.add(types.InlineKeyboardButton(BACK_TO_SUBSCRIPTIONS, callback_data="profile_subscriptions"))
-        markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
+        add_subscription_navigation_buttons(markup)
 
         if is_registry_managed:
             flow_copy = "Доступ для этого аккаунта управляется автоматически через реестр. Дополнительные заявки не нужны."
@@ -133,8 +136,8 @@ class SubscriptionAccessRequestHandler:
                 )
             )
 
-        markup.add(types.InlineKeyboardButton("⬅️ К запросу доступа", callback_data="sub_access_request"))
-        markup.add(types.InlineKeyboardButton(BACK_TO_SUBSCRIPTIONS, callback_data="profile_subscriptions"))
+        add_access_request_back_button(markup)
+        add_subscription_navigation_buttons(markup, include_main_menu=False)
 
         title = self.SCOPE_LABELS.get(str(scope).strip().lower(), "Шаблон доступа")
         description = (
@@ -187,9 +190,8 @@ class SubscriptionAccessRequestHandler:
             return
 
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("⬅️ К запросу доступа", callback_data="sub_access_request"))
-        markup.add(types.InlineKeyboardButton(BACK_TO_SUBSCRIPTIONS, callback_data="profile_subscriptions"))
-        markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
+        add_access_request_back_button(markup)
+        add_subscription_navigation_buttons(markup)
 
         text_parts: list[str] = []
         if notice:

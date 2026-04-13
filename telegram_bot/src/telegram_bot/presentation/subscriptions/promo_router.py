@@ -1,6 +1,5 @@
 from telebot.types import Message
 
-from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.presentation.subscriptions.subscription_promo_handler import SubscriptionPromoHandler
 

@@ -51,7 +51,7 @@ const cards = computed(() => {
   const items = [
     {
       key: 'standard',
-      title: 'Базовая конфигурация',
+      title: 'Базовая',
       icon: 'vpn_key',
       accentClass: 'scope-card--warm',
       buttonClass: 'cabinet-btn--warm',
@@ -61,12 +61,12 @@ const cards = computed(() => {
       secondaryLabel: 'Действует до',
       secondaryValue: formatDateTime(subscriptions.value.standard.expires_at),
       importUrl: subscriptions.value.standard.subscription_import_url,
-      note: 'Повседневный защищённый удалённый доступ.',
+      note: 'Повседневный защищённый доступ.',
       metrics: [],
     },
     {
       key: 'traffic_limited',
-      title: 'Конфигурация с лимитом трафика',
+      title: 'Доступ с лимитом трафика',
       icon: 'shield',
       accentClass: 'scope-card--blue',
       buttonClass: 'cabinet-btn--primary',
@@ -76,7 +76,7 @@ const cards = computed(() => {
       secondaryLabel: 'Действует до',
       secondaryValue: formatDateTime(subscriptions.value.traffic_limited.expires_at),
       importUrl: subscriptions.value.traffic_limited.subscription_import_url,
-      note: 'Отдельный контур с учётом трафика и срока действия.',
+      note: 'Отдельный доступ с лимитом трафика и сроком действия.',
       metrics: [
         { label: 'Использовано', value: subscriptions.value.traffic_limited.human_view_traffic_used || '0 B' },
         { label: 'Выдано', value: subscriptions.value.traffic_limited.human_view_traffic_allocated || '0 B' },

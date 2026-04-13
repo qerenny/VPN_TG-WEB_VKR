@@ -118,33 +118,33 @@ const repeatRequestButtonLabel = computed(() => {
 })
 const requestTypeHint = computed(() => {
   if (requestKind.value === 'renewal') {
-    return 'Используйте этот вариант, если нужно только продлить срок текущего доступа. Шаблон при продлении не меняется.'
+    return 'Продление текущего доступа без смены шаблона.'
   }
   if (registryManagedAccess.value) {
-    return 'Доступ для этого аккаунта управляется реестром. Система выдаёт и продлевает его автоматически.'
+    return 'Доступ управляется через реестр — система выдаёт и продлевает его автоматически.'
   }
   if (hasActiveAccess.value) {
-    return 'Используйте этот вариант, если нужно заменить текущий доступ: выбрать другой шаблон или перевыпустить его на новый срок. Дополнительный параллельный ключ этим сценарием не создаётся.'
+    return 'Замена текущего доступа: можно выбрать другой шаблон или перевыпустить на новый срок.'
   }
-  return 'Используйте этот вариант для первичной выдачи доступа.'
+  return 'Первичная выдача доступа.'
 })
 const purchaseIntroCopy = computed(() => {
   if (registryManagedAccess.value) {
-    return 'Для этого аккаунта доступ обслуживается через реестр. Новые заявки, продление и перевыпуск из кабинета недоступны.'
+    return 'Доступ для этого аккаунта управляется через реестр и продлевается автоматически.'
   }
   if (!webPurchaseEnabled.value && accessRequestsEnabled.value) {
     if (accessRegistryEnabled.value) {
-      return 'Доступ выдается по заявке. Если аккаунт найден в реестре разрешённых пользователей, запрос может быть одобрен автоматически.'
+      return 'Доступ выдаётся по заявке. Если аккаунт есть в реестре, запрос может быть одобрен автоматически.'
     }
-    return 'Доступ выдается по заявке. Оставьте комментарий, а администратор одобрит и активирует нужную конфигурацию.'
+    return 'Доступ выдаётся по заявке. Оставь комментарий — администратор рассмотрит и активирует доступ.'
   }
   if (standardConfigEnabled.value && trafficLimitedConfigEnabled.value) {
-    return 'Базовая конфигурация подходит для повседневного использования. Отдельно можно получить конфигурацию с лимитом трафика со своим сроком и квотой.'
+    return 'Базовая конфигурация — для повседневного использования. Доступ с лимитом трафика — отдельный, со своим сроком и квотой.'
   }
   if (trafficLimitedConfigEnabled.value) {
-    return 'Доступна конфигурация с лимитом трафика со своим сроком действия и квотой.'
+    return 'Доступен доступ с лимитом трафика — со своим сроком действия и квотой.'
   }
-  return 'Базовая конфигурация для повседневного защищённого удалённого доступа.'
+  return 'Базовая конфигурация для повседневного защищённого доступа.'
 })
 const selectedPlan = computed(() => {
   if (!selectedScope.value || !selectedPlanCode.value) {
@@ -408,7 +408,7 @@ onUnmounted(() => {
           <span class="material-symbols-outlined purchase-card__icon purchase-card__icon--blue">approval</span>
           <div class="cabinet-section__head">
             <p class="cabinet-badge">Заявка на доступ</p>
-            <h3 class="cabinet-subtitle">Автоматизированная обработка запроса</h3>
+            <h3 class="cabinet-subtitle">Оставить заявку</h3>
             <p class="cabinet-copy">
               {{ requestTypeHint }}
             </p>
@@ -552,10 +552,10 @@ onUnmounted(() => {
         <div class="purchase-card__head">
           <span class="material-symbols-outlined purchase-card__icon purchase-card__icon--warm">vpn_key</span>
           <div class="cabinet-section__head">
-            <p class="cabinet-badge cabinet-badge--warm">Базовая конфигурация</p>
-            <h3 class="cabinet-subtitle">Домашний интернет, стриминг и работа</h3>
+            <p class="cabinet-badge cabinet-badge--warm">Базовая</p>
+            <h3 class="cabinet-subtitle">Повседневный доступ</h3>
             <p class="cabinet-copy">
-              Базовый контур для повседневного использования без ограничений по трафику.
+              Для повседневного использования без ограничений по трафику.
             </p>
           </div>
         </div>

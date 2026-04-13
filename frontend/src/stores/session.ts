@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
-import axios from 'axios'
 
 import { fetchWebMe, logoutWeb, type WebMe } from '../api/auth'
+import { isAxiosStatus } from '../utils/httpErrors'
 
 interface SessionState {
   me: WebMe | null
@@ -38,7 +38,7 @@ export async function ensureSession(force = false) {
       return me
     })
     .catch((error: unknown) => {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
+      if (isAxiosStatus(error, 401)) {
         sessionState.me = null
         sessionState.initialized = true
         return null

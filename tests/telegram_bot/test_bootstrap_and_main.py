@@ -9,7 +9,6 @@ from telegram_bot.bootstrap import build_bot_app
 from telegram_bot.main import (
     POLLING_REQUEST_TIMEOUT_SECONDS,
     POLLING_TIMEOUT_SECONDS,
-    _run_disabled_bot_runtime,
     _run_polling_with_backoff,
     main,
     run_bot,

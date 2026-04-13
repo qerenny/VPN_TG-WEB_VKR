@@ -3,8 +3,8 @@ from telebot.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from shared.config.config import PHOTO_help
 from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
-from telegram_bot.shared.config.navigation import MAIN_MENU
 from shared.config.config import BOT_SUPPORT_TG_LINK
+from telegram_bot.shared.keyboards import add_main_menu_button
 from telegram_bot.shared.texts import messages
 from telegram_bot.shared.utils.menu_rendering import render_photo_menu
 
@@ -28,7 +28,7 @@ class SupportHandler:
                     url=BOT_SUPPORT_TG_LINK,
                 )
             )
-        markup.add(InlineKeyboardButton(text=MAIN_MENU, callback_data="menu_start"))
+        add_main_menu_button(markup)
 
         await render_photo_menu(
             target=call,

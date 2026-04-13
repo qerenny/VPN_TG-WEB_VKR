@@ -8,10 +8,7 @@ from shared.product_constants import (
     PRODUCT_SCOPE_STANDARD,
     PRODUCT_SCOPE_TRAFFIC_LIMITED,
 )
-from shared.constants.payments import (
-    SUBSCRIPTION_PAYLOAD_INFO_CHANNEL_BONUS_4D,
-    SUBSCRIPTION_PAYLOAD_TRIAL_3D,
-)
+from shared.constants.payments import SUBSCRIPTION_PAYLOAD_TRIAL_3D
 from shared.infrastructure.payment_plan_catalog import PlanSeed, get_plan_seed_by_payload
 
 TRIAL = "3 дня (пробный доступ)"
@@ -73,7 +70,6 @@ def _build_product(
 
 
 DAY_3_TIMESTAMP = SUBSCRIPTION_PAYLOAD_TRIAL_3D
-INFO_CHANNEL_BONUS_TIMESTAMP = SUBSCRIPTION_PAYLOAD_INFO_CHANNEL_BONUS_4D
 
 def _build_standard_product(payload: str, *, icon: str, months: int) -> dict[str, int | str]:
     seed = get_plan_seed_by_payload(payload)

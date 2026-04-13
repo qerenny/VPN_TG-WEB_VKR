@@ -1,32 +1,15 @@
-import axios from 'axios'
-
 import { API_BASE_URL } from './base'
+import { getUrlData } from './http'
+import { createSingleFlightByKey } from './requestCache'
 
-const inflightRequests = new Map<string, Promise<unknown>>()
+const runUserInfoRequest = createSingleFlightByKey<string, unknown>()
 
 export async function fetchUserInfo(token: string, scope: 'standard' | 'traffic_limited' = 'standard') {
   const requestKey = `${scope}:${token}`
-  const existingRequest = inflightRequests.get(requestKey)
-  if (existingRequest) {
-    return existingRequest
-  }
-
   const path =
     scope === 'traffic_limited' ? `/subscription/traffic-limited/${token}` : `/subscription/${token}`
-  const request = axios
-    .get(`${API_BASE_URL}${path}`)
-    .then((res) => res.data)
-    .catch((error: unknown) => {
-      if (axios.isAxiosError(error)) {
-        throw error
-      }
-      throw new Error('Unexpected error')
-    })
-    .finally(() => {
-      inflightRequests.delete(requestKey)
-    })
 
-  inflightRequests.set(requestKey, request)
-
-  return await request
+  return runUserInfoRequest(requestKey, async () => {
+    return getUrlData<unknown>(`${API_BASE_URL}${path}`)
+  })
 }

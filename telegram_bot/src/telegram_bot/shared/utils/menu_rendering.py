@@ -19,10 +19,6 @@ def get_menu_message_id(chat_id: int) -> int | None:
     return _CHAT_MENU_MESSAGE_IDS.get(int(chat_id))
 
 
-def clear_menu_message_id(chat_id: int) -> None:
-    _CHAT_MENU_MESSAGE_IDS.pop(int(chat_id), None)
-
-
 async def render_photo_menu(
     *,
     target: Message | CallbackQuery,

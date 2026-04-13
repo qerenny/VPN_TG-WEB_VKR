@@ -4,7 +4,7 @@ from shared.config.config import PHOTO_referral_program
 from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.services.referrals.referrals_stats_service import ReferralStatsService
-from telegram_bot.shared.config.navigation import MAIN_MENU
+from telegram_bot.shared.keyboards import build_main_menu_button_markup
 from telegram_bot.shared.texts import messages
 from telegram_bot.shared.utils.menu_rendering import render_photo_menu
 
@@ -32,15 +32,12 @@ class ReferralMenuHandler:
         referral_link_text = await self.stats.send_referral_link(tg_id)
         rules_text = await self.stats.send_rules(tg_id)
 
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text=MAIN_MENU, callback_data="menu_start"))
-
         result = f"{welcome_text}\n\n{rules_text}\n\n{referral_link_text}"
         await render_photo_menu(
             target=call,
             photo=PHOTO_referral_program,
             caption=result,
-            reply_markup=markup,
+            reply_markup=build_main_menu_button_markup(),
             parse_mode="Markdown",
             bot_client=bot,
         )

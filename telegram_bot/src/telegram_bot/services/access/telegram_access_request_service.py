@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from shared.infrastructure.users.telegram_user_repository import TelegramUserRepository
 from shared.product_constants import ACCESS_REQUEST_KIND_NEW_ACCESS
-
-if TYPE_CHECKING:
-    from shared.services.access.access_request_service import AccessRequestService
 
 
 @dataclass(frozen=True, slots=True)

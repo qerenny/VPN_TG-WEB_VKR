@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import and_, select
 
 from shared.config.config import FRONTEND_TELEGRAM_LINK
-from shared.constants.linking import LINK_TELEGRAM_PURPOSE, LINK_WEB_PURPOSE
+from shared.constants.linking import LINK_TELEGRAM_PURPOSE
 from shared.config.database.session import get_db_session
 from shared.infrastructure.identity_link_service import IdentityLinkService
 from shared.models.payments.payment_order_model import PaymentOrder

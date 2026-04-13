@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import axios from 'axios'
 import { computed, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
@@ -7,6 +6,7 @@ import { useToast } from 'vue-toastification'
 import { resendWebRegistration, startWebRegistration, verifyWebRegistration } from '../../api/auth'
 import { consumePublicLink } from '../../api/linking'
 import { refreshSession } from '../../stores/session'
+import { getAxiosErrorMessage } from '../../utils/httpErrors'
 
 const route = useRoute()
 const router = useRouter()
@@ -60,11 +60,7 @@ async function startRegistration() {
     if (result.verification_required) startResendCooldown()
     toast.success(result.verification_required ? 'Код отправлен на почту' : 'Можно завершить регистрацию без кода')
   } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      toast.error(String(error.response?.data?.detail || 'Не удалось отправить код'))
-    } else {
-      toast.error('Не удалось отправить код')
-    }
+    toast.error(getAxiosErrorMessage(error, 'Не удалось отправить код'))
   } finally {
     loading.value = false
   }
@@ -78,11 +74,7 @@ async function resendCode() {
     if (result.verification_required) startResendCooldown()
     toast.success(result.verification_required ? 'Код отправлен повторно' : 'Подтверждение email временно отключено')
   } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      toast.error(String(error.response?.data?.detail || 'Не удалось отправить код'))
-    } else {
-      toast.error('Не удалось отправить код')
-    }
+    toast.error(getAxiosErrorMessage(error, 'Не удалось отправить код'))
   } finally {
     loading.value = false
   }
@@ -102,11 +94,7 @@ async function verifyRegistration() {
     toast.success('Аккаунт создан')
     await router.replace('/app')
   } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      toast.error(String(error.response?.data?.detail || 'Не удалось завершить регистрацию'))
-    } else {
-      toast.error('Не удалось завершить регистрацию')
-    }
+    toast.error(getAxiosErrorMessage(error, 'Не удалось завершить регистрацию'))
   } finally {
     loading.value = false
   }

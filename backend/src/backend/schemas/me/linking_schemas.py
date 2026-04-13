@@ -10,13 +10,6 @@ class TelegramLinkStartResponse(BaseModel):
     telegram_id: int | None
     telegram_username: str | None
 
-
-class WebLinkStartResponse(BaseModel):
-    status: str
-    link_url: str | None
-    expires_at: str | None
-
-
 class PublicLinkPreviewResponse(BaseModel):
     status: str
     purpose: str | None

@@ -1,5 +1,3 @@
-from shared.config.config import BOT_SUPPORT_TG_LINK
-
 categories = {
     "support_welcome_message": [
         "Если что-то не работает или есть вопросы — напиши в поддержку.",

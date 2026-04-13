@@ -1,20 +1,9 @@
-import axios from 'axios'
-
 import { API_BASE_URL } from './base'
+import { getUrlData } from './http'
+import { createCachedSingleFlight } from './requestCache'
+import type { FeatureFlags } from './types'
 
-export interface FrontendFeatureFlags {
-  access_requests_enabled: boolean
-  access_registry_enabled: boolean
-  access_admin_override_enabled: boolean
-  commerce_enabled: boolean
-  referrals_enabled: boolean
-  promos_enabled: boolean
-  web_purchase_enabled: boolean
-  telegram_bot_enabled: boolean
-  mail_enabled: boolean
-  standard_config_enabled: boolean
-  traffic_limited_config_enabled: boolean
-}
+export interface FrontendFeatureFlags extends FeatureFlags {}
 
 export const DEFAULT_FEATURE_FLAGS: FrontendFeatureFlags = Object.freeze({
   access_requests_enabled: false,
@@ -117,8 +106,7 @@ export function createEmptyPublicConfig(): FrontendPublicConfig {
   }
 }
 
-let inflightRequest: Promise<FrontendPublicConfig> | null = null
-let cachedConfig: FrontendPublicConfig | null = null
+const loadCachedPublicConfig = createCachedSingleFlight<FrontendPublicConfig>()
 
 function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
   const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
@@ -233,24 +221,8 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
 }
 
 export async function fetchPublicConfig(): Promise<FrontendPublicConfig> {
-  if (cachedConfig) {
-    return cachedConfig
-  }
-
-  if (inflightRequest) {
-    return inflightRequest
-  }
-
-  inflightRequest = axios
-    .get(`${API_BASE_URL}/user/public-config`)
-    .then((response) => {
-      const normalized = normalizePublicConfig(response.data)
-      cachedConfig = normalized
-      return normalized
-    })
-    .finally(() => {
-      inflightRequest = null
-    })
-
-  return inflightRequest
+  return loadCachedPublicConfig(async () => {
+    const payload = await getUrlData<unknown>(`${API_BASE_URL}/user/public-config`)
+    return normalizePublicConfig(payload)
+  })
 }

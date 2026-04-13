@@ -18,7 +18,6 @@ import {
   runAdminAction,
   searchAdminUsers,
   toggleAdminPromo,
-  toggleAdminAccessRegistry,
   updateAdminAccessRegistry,
   upsertAdminAccessRegistry,
   type AdminActionPayload,
@@ -866,16 +865,6 @@ async function submitAccessRegistryEntry() {
     toast.error(error?.response?.data?.detail || 'Не удалось сохранить запись реестра')
   } finally {
     isSubmittingAccessRegistry.value = false
-  }
-}
-
-async function handleToggleAccessRegistry(entry: AdminAccessRegistryItem) {
-  try {
-    await toggleAdminAccessRegistry(entry.id, !entry.is_active, entry)
-    toast.success(`Запись ${entry.is_active ? 'отключена' : 'включена'}`)
-    await loadAccessRegistry()
-  } catch (error: any) {
-    toast.error(error?.response?.data?.detail || 'Не удалось обновить запись реестра')
   }
 }
 

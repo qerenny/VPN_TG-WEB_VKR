@@ -14,7 +14,6 @@ from backend.main import create_app
 from backend.routers.subscription import subscription_routes
 from shared.config.config import CONFIG_PATH, DB_NAME, REDIS_URL
 from shared.config.database.engine import engine
-from shared.models.admin.admin_audit_log_model import AdminAuditLog
 from shared.models import register_models as register_models
 from shared.utils.async_redis_client import AsyncRedisClient
 

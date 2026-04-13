@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
-
 from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func as sa_func, select
 

@@ -225,10 +225,6 @@ def get_subscription_manager_service(request: Request) -> SubscriptionManagerSer
     return get_backend_deps(request).subscription_manager_service
 
 
-def get_user_manager_service(request: Request) -> UserManagerService:
-    return get_backend_deps(request).user_manager_service
-
-
 def get_jwt_encoder(request: Request) -> JWTEncoder:
     return get_backend_deps(request).jwt_encoder
 
@@ -239,10 +235,6 @@ def get_admin_service(request: Request) -> AdminService:
 
 def get_auth_service(request: Request) -> AuthService:
     return get_backend_deps(request).auth_service
-
-
-def get_transactional_email_service(request: Request) -> TransactionalEmailService:
-    return get_backend_deps(request).transactional_email_service
 
 
 def get_account_service(request: Request) -> AccountService:

@@ -1,4 +1,4 @@
-import { http } from './http'
+import { getData, postData, http } from './http'
 
 export interface PublicLinkPreview {
   status: string
@@ -12,11 +12,9 @@ export interface PublicLinkConsumeResult {
 }
 
 export async function fetchPublicLinkPreview(token: string) {
-  const response = await http.get<PublicLinkPreview>(`/public/link/telegram/${encodeURIComponent(token)}`)
-  return response.data
+  return getData<PublicLinkPreview>(http, `/public/link/telegram/${encodeURIComponent(token)}`)
 }
 
 export async function consumePublicLink(token: string) {
-  const response = await http.post<PublicLinkConsumeResult>('/public/link/consume', { token })
-  return response.data
+  return postData<PublicLinkConsumeResult, { token: string }>(http, '/public/link/consume', { token })
 }

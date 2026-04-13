@@ -8,10 +8,7 @@ from shared.constants.payments import (
     PROVIDER_STATUS_PAID,
     RUNTIME_PAYMENT_STATUS_CANCELED,
 )
-from shared.infrastructure.payments.payment_repository import (
-    PaymentRepository,
-    PaymentSnapshot,
-)
+from shared.infrastructure.payments.payment_repository import PaymentRepository
 from shared.utils.logging_utils import logger, log_with_throttle
 from telegram_bot.services.payments.payment_fulfillment_service import (
     PaymentFulfillmentService,

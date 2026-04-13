@@ -1,6 +1,5 @@
 from telebot.types import CallbackQuery, Message
 
-from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
 from telegram_bot.presentation.instructions.help_handler import HelpHandler
 from telegram_bot.presentation.start.start_handler import StartHandler

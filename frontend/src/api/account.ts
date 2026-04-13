@@ -1,11 +1,7 @@
-import { http } from './http'
+import { getData, getItems, patchData, postData, http } from './http'
+import type { AccessRequestItem, UserProfileFields } from './types'
 
-export interface WebProfile {
-  display_name: string | null
-  timezone: string | null
-  locale: string | null
-  marketing_opt_in: boolean
-  preferred_contact_email: string | null
+export interface WebProfile extends UserProfileFields {
   auth_email: string | null
   email_verified: boolean
 }
@@ -95,24 +91,7 @@ export interface WebPlanCatalog {
   traffic_limited: WebCatalogPlan[]
 }
 
-export interface WebAccessRequestItem {
-  id: number
-  user_id: number
-  requested_template_code: string | null
-  requested_template_label?: string | null
-  approved_template_label?: string | null
-  access_grant_id: number | null
-  channel: string
-  request_kind: string
-  status: string
-  comment: string | null
-  review_note: string | null
-  reviewed_by_actor: string | null
-  requested_at: string
-  reviewed_at: string | null
-  expires_at: string | null
-  metadata: Record<string, unknown>
-}
+export interface WebAccessRequestItem extends AccessRequestItem {}
 
 export interface WebAccessGrantItem {
   id: number
@@ -149,79 +128,65 @@ export interface WebReferralStats {
 }
 
 export async function fetchReferralStats() {
-  const response = await http.get<WebReferralStats>('/me/referrals')
-  return response.data
+  return getData<WebReferralStats>(http, '/me/referrals')
 }
 
 export async function fetchProfile() {
-  const response = await http.get<WebProfile>('/me/profile')
-  return response.data
+  return getData<WebProfile>(http, '/me/profile')
 }
 
 export async function updateProfile(payload: Partial<WebProfile>) {
-  const response = await http.patch<WebProfile>('/me/profile', payload)
-  return response.data
+  return patchData<WebProfile, Partial<WebProfile>>(http, '/me/profile', payload)
 }
 
 export async function fetchLinks() {
-  const response = await http.get<WebLinks>('/me/links')
-  return response.data
+  return getData<WebLinks>(http, '/me/links')
 }
 
 export async function fetchSubscriptions() {
-  const response = await http.get<WebSubscriptions>('/me/subscriptions')
-  return response.data
+  return getData<WebSubscriptions>(http, '/me/subscriptions')
 }
 
 export async function fetchPayments() {
-  const response = await http.get<{ items: WebPaymentItem[] }>('/me/payments')
-  return response.data.items
+  return getItems<WebPaymentItem>(http, '/me/payments')
 }
 
 export async function fetchPlanCatalog() {
-  const response = await http.get<WebPlanCatalog>('/me/plans')
-  return response.data
+  return getData<WebPlanCatalog>(http, '/me/plans')
 }
 
 export async function fetchAccessRequests() {
-  const response = await http.get<{ items: WebAccessRequestItem[] }>('/me/access-requests')
-  return response.data.items
+  return getItems<WebAccessRequestItem>(http, '/me/access-requests')
 }
 
 export async function createAccessRequest(payload: { template_code?: string | null; request_kind?: string | null; comment?: string | null }) {
-  const response = await http.post<WebAccessRequestItem>('/me/access-requests', payload)
-  return response.data
+  return postData<WebAccessRequestItem, typeof payload>(http, '/me/access-requests', payload)
 }
 
 export async function repeatAccessRequest(requestId: number) {
-  const response = await http.post<WebAccessRequestItem>(`/me/access-requests/${requestId}/repeat`)
-  return response.data
+  return postData<WebAccessRequestItem>(http, `/me/access-requests/${requestId}/repeat`)
 }
 
 export async function fetchAccessGrants() {
-  const response = await http.get<{ items: WebAccessGrantItem[] }>('/me/access-grants')
-  return response.data.items
+  return getItems<WebAccessGrantItem>(http, '/me/access-grants')
 }
 
 export async function startTelegramLink() {
-  const response = await http.post<TelegramLinkStartResult>('/me/links/telegram/start')
-  return response.data
+  return postData<TelegramLinkStartResult>(http, '/me/links/telegram/start')
 }
 
 export async function createStandardCheckout(planCode: string, method = 'external_card') {
-  const response = await http.post('/me/payments/checkout', {
+  return postData<{ checkout_url: string }, { plan_code: string; method: string }>(http, '/me/payments/checkout', {
     plan_code: planCode,
     method,
   })
-  return response.data as { checkout_url: string }
 }
 
 export async function createTrafficLimitedCheckout(planCode: string, method = 'external_card') {
-  const response = await http.post('/me/payments/checkout/traffic-limited', {
+  return postData<{ checkout_url: string }, { plan_code: string; method: string }>(http, '/me/payments/checkout/traffic-limited', {
     plan_code: planCode,
     method,
   })
-  return response.data as { checkout_url: string }
 }
 
 export interface WebPromoApplyResult {
@@ -231,6 +196,5 @@ export interface WebPromoApplyResult {
 }
 
 export async function applyPromoCode(code: string) {
-  const response = await http.post<WebPromoApplyResult>('/me/promo/apply', { code })
-  return response.data
+  return postData<WebPromoApplyResult, { code: string }>(http, '/me/promo/apply', { code })
 }

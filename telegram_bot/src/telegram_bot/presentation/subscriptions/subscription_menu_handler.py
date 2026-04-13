@@ -8,10 +8,9 @@ from telegram_bot.bot import bot
 from telegram_bot.shared.config.navigation import (
     ACCESS_REQUEST,
     ACCESS_REQUEST_STATUS,
-    BACK_TO_SUBSCRIPTIONS,
-    MAIN_MENU,
     TRAFFIC_LIMITED_ACCESS,
 )
+from telegram_bot.shared.keyboards import add_main_menu_button, add_subscription_navigation_buttons
 from telegram_bot.shared.config.subscription_products import (
     MONTH1,
     MONTH3,
@@ -80,7 +79,7 @@ class SubscriptionMenuHandler:
                 types.InlineKeyboardButton(ACCESS_REQUEST, callback_data="sub_access_request"),
                 types.InlineKeyboardButton(ACCESS_REQUEST_STATUS, callback_data="sub_access_request_status"),
             )
-        markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
+        add_main_menu_button(markup)
 
         await render_photo_menu(
             target=call,
@@ -115,10 +114,7 @@ class SubscriptionMenuHandler:
             markup.add(
                 types.InlineKeyboardButton(TRAFFIC_LIMITED80GB["label"], callback_data="sub_traffic_limited80gb")
             )
-        markup.add(
-            types.InlineKeyboardButton(BACK_TO_SUBSCRIPTIONS, callback_data="profile_subscriptions")
-        )
-        markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
+        add_subscription_navigation_buttons(markup)
 
         await render_photo_menu(
             target=call,

@@ -1,5 +1,4 @@
 import time
-import pytest
 from backend.utils.ttl_cache import TTLCache
 
 

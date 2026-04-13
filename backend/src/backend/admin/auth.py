@@ -10,7 +10,7 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request, Response, s
 
 from backend.admin.types import AdminPrincipal
 from backend.bootstrap import get_backend_deps
-from backend.utils.async_redis_client import AsyncRedisClient, RedisClientError
+from backend.utils.async_redis_client import RedisClientError
 from shared.config.config import PRODUCT_COOKIE_PREFIX, PRODUCT_REDIS_PREFIX
 
 

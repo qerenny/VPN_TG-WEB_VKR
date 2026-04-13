@@ -1,9 +1,6 @@
 import json
 from typing import Any, Dict
 
-from shared.utils.logging_utils import logger
-
-
 class JSONBuilder:
     @staticmethod
     def update_post_client_json(

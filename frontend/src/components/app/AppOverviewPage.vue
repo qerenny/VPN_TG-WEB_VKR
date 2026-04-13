@@ -92,8 +92,8 @@ const visibleSubscriptionRows = computed(() => {
   if (!subscriptions.value) return []
 
   const rows = [
-    { key: 'standard', label: 'Базовая конфигурация', active: subscriptions.value.standard.is_active },
-    { key: 'traffic_limited', label: 'Лимит трафика', active: subscriptions.value.traffic_limited.is_active },
+    { key: 'standard', label: 'Базовая', active: subscriptions.value.standard.is_active },
+    { key: 'traffic_limited', label: 'Доступ с лимитом трафика', active: subscriptions.value.traffic_limited.is_active },
   ]
   return rows.filter((row) => {
     if (row.key === 'standard') return standardConfigEnabled.value
@@ -110,18 +110,18 @@ const activeAccessGrant = computed(() => accessGrants.value.find((item) => item.
 
 function accessGrantSourceLabel(sourceType: string) {
   const normalized = String(sourceType || '').trim().toLowerCase()
-  if (normalized === 'payment') return 'Оформление доступа'
+  if (normalized === 'payment') return 'Оплата'
   if (normalized === 'request_approval') return 'Заявка'
-  if (normalized === 'access_registry') return 'Реестр доступа'
-  if (normalized === 'access_registry_auto_renew') return 'Автопродление по реестру'
-  if (normalized === 'admin_override') return 'Административная выдача'
-  return normalized || 'Источник не указан'
+  if (normalized === 'access_registry') return 'Реестр'
+  if (normalized === 'access_registry_auto_renew') return 'Автопродление'
+  if (normalized === 'admin_override') return 'Администратор'
+  return normalized || 'Не указан'
 }
 
 function accessGrantScopeLabel(scope: string) {
   return String(scope || '').trim().toLowerCase() === 'traffic_limited'
-    ? 'Лимит трафика'
-    : 'Базовая конфигурация'
+    ? 'Доступ с лимитом трафика'
+    : 'Базовая'
 }
 
 function accessGrantStatusLabel(status: string) {
@@ -143,7 +143,7 @@ function activeAccessReasonFacts() {
   if (!grant) return []
   const facts: { label: string; value: string; icon: string }[] = [
     { label: 'Шаблон', value: grant.template_label || formatAccessTemplateLabel(grant.template_code), icon: 'description' },
-    { label: 'Контур', value: accessGrantScopeLabel(grant.scope), icon: 'layers' },
+    { label: 'Тип доступа', value: accessGrantScopeLabel(grant.scope), icon: 'layers' },
   ]
   if (grant.expires_at) {
     facts.push({ label: 'Действует до', value: new Date(grant.expires_at).toLocaleString(), icon: 'schedule' })

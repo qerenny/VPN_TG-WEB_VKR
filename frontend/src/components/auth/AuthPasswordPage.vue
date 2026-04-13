@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import axios from 'axios'
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
 
 import { resetPassword, startPasswordReset } from '../../api/auth'
+import { getAxiosErrorMessage } from '../../utils/httpErrors'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,11 +23,7 @@ async function requestReset() {
     stage.value = 'reset'
     toast.success('Код отправлен на почту')
   } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      toast.error(String(error.response?.data?.detail || 'Не удалось отправить код'))
-    } else {
-      toast.error('Не удалось отправить код')
-    }
+    toast.error(getAxiosErrorMessage(error, 'Не удалось отправить код'))
   } finally {
     loading.value = false
   }
@@ -44,11 +40,7 @@ async function submitReset() {
     toast.success('Пароль обновлен')
     await router.replace({ path: '/auth/login', query: { email: email.value.trim() } })
   } catch (error: unknown) {
-    if (axios.isAxiosError(error)) {
-      toast.error(String(error.response?.data?.detail || 'Не удалось обновить пароль'))
-    } else {
-      toast.error('Не удалось обновить пароль')
-    }
+    toast.error(getAxiosErrorMessage(error, 'Не удалось обновить пароль'))
   } finally {
     loading.value = false
   }

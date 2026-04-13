@@ -4,8 +4,6 @@ import uuid
 
 from haikunator import Haikunator
 
-from shared.utils.logging_utils import logger
-
 
 class UUIDGenerator:
     @staticmethod

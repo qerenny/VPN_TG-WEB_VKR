@@ -4,12 +4,12 @@ from telebot.types import CallbackQuery, Message, WebAppInfo
 from shared.config.config import PHOTO_instructions
 from shared.utils.logging_utils import logger
 from telegram_bot.bot import bot
+from telegram_bot.shared.keyboards import add_main_menu_button
 from telegram_bot.shared.config.navigation import (
     FAQ,
     FAQ_LINK,
     INSTRUCTIONS_DEVICES,
     INSTRUCTIONS_DEVICES_LINK,
-    MAIN_MENU,
 )
 from telegram_bot.shared.texts import messages
 from telegram_bot.shared.utils.menu_rendering import render_photo_menu
@@ -38,7 +38,7 @@ class HelpHandler:
             )
         if not FAQ_LINK and not INSTRUCTIONS_DEVICES_LINK:
             text = f"{text}\n\nДополнительные справочные материалы не настроены."
-        markup.add(types.InlineKeyboardButton(MAIN_MENU, callback_data="menu_start"))
+        add_main_menu_button(markup)
 
         await render_photo_menu(
             target=target,
