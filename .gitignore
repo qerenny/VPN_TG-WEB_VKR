@@ -281,6 +281,7 @@ docs/*
 !docs/ai_context.md
 !docs/vkr_main.docx
 !docs/vkr_working.docx
+!docs/vkr*
 
 
 # Local assistant/project memory
