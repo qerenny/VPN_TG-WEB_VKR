@@ -134,11 +134,11 @@ class AccessLifecycleService:
         processed_pairs: set[tuple[int, str]] = set()
         revoked_count = 0
         for row in rows:
-            key = (int(row.user_id), str(row.scope))
-            if key in processed_pairs:
+            if self._scope_pair_seen(row=row, processed_pairs=processed_pairs):
                 continue
-            processed_pairs.add(key)
-            match = await self.access_registry_repository.find_matching_entry_for_user(user_id=int(row.user_id))
+            match = await self.access_registry_repository.find_matching_entry_for_user(
+                user_id=int(row.user_id)
+            )
             if match is not None:
                 continue
             revoked = await self.access_grant_repository.revoke_scope_grants_by_source_types(
@@ -151,12 +151,10 @@ class AccessLifecycleService:
             if not revoked:
                 continue
             revoked_count += len(revoked)
-            has_replacement = await self.access_grant_repository.has_active_scope_grant(
+            await self._revoke_runtime_if_scope_has_no_replacement(
                 user_id=int(row.user_id),
                 scope=str(row.scope),
             )
-            if not has_replacement:
-                await self._revoke_runtime_access(user_id=int(row.user_id), scope=str(row.scope))
         return revoked_count
 
     async def _reconcile_runtime_for_expired(self, rows) -> int:
@@ -165,17 +163,9 @@ class AccessLifecycleService:
         for row in rows:
             if row.id is None:
                 continue
-            key = (int(row.user_id), str(row.scope))
-            if key in processed_pairs:
+            if self._scope_pair_seen(row=row, processed_pairs=processed_pairs):
                 continue
-            processed_pairs.add(key)
-            has_replacement = await self.access_grant_repository.has_active_scope_grant(
-                user_id=int(row.user_id),
-                scope=str(row.scope),
-            )
-            if has_replacement:
-                continue
-            revoked = await self._revoke_runtime_access(
+            revoked = await self._revoke_runtime_if_scope_has_no_replacement(
                 user_id=int(row.user_id),
                 scope=str(row.scope),
             )
@@ -240,6 +230,28 @@ class AccessLifecycleService:
             return bool(
                 await self.traffic_limited_service.revoke_access_for_user(user_id=int(user_id))
             )
+        return False
+
+    async def _revoke_runtime_if_scope_has_no_replacement(
+        self,
+        *,
+        user_id: int,
+        scope: str,
+    ) -> bool:
+        has_replacement = await self.access_grant_repository.has_active_scope_grant(
+            user_id=int(user_id),
+            scope=str(scope),
+        )
+        if has_replacement:
+            return False
+        return await self._revoke_runtime_access(user_id=int(user_id), scope=str(scope))
+
+    @staticmethod
+    def _scope_pair_seen(*, row, processed_pairs: set[tuple[int, str]]) -> bool:
+        key = (int(row.user_id), str(row.scope))
+        if key in processed_pairs:
+            return True
+        processed_pairs.add(key)
         return False
 
     @staticmethod

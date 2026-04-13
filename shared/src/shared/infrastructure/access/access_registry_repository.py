@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import desc, or_
 from sqlmodel import select
 
 from shared.config.database.session import get_db_session
+from shared.infrastructure.access.repository_utils import (
+    clamp_limit,
+    merge_metadata,
+    normalize_optional_text,
+    normalize_text,
+    utc_now,
+)
 from shared.models.access.access_registry_entry_model import AccessRegistryEntry
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.user_profile_model import UserProfile
@@ -34,7 +41,7 @@ class AccessRegistryRepository:
     ) -> AccessRegistryEntry:
         normalized_type, normalized_value = self.normalize_identity(identity_type, identity_value)
         normalized_template_code = (
-            str(template_code or ACCESS_REGISTRY_DEFAULT_TEMPLATE_CODE).strip().lower()
+            normalize_text(template_code or ACCESS_REGISTRY_DEFAULT_TEMPLATE_CODE, lowercase=True)
             or ACCESS_REGISTRY_DEFAULT_TEMPLATE_CODE
         )
         if not normalized_template_code:
@@ -50,7 +57,7 @@ class AccessRegistryRepository:
                     )
                 )
             ).scalar_one_or_none()
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             if row is None:
                 row = AccessRegistryEntry(
                     identity_type=normalized_type,
@@ -60,9 +67,9 @@ class AccessRegistryRepository:
                     auto_approve=bool(auto_approve),
                     allow_auto_renew=bool(allow_auto_renew),
                     is_active=bool(is_active),
-                    note=(str(note).strip() or None) if note is not None else None,
-                    created_by_actor=str(actor or "").strip() or None,
-                    updated_by_actor=str(actor or "").strip() or None,
+                    note=normalize_optional_text(note),
+                    created_by_actor=normalize_optional_text(actor),
+                    updated_by_actor=normalize_optional_text(actor),
                     created_at=now,
                     updated_at=now,
                     valid_from=valid_from,
@@ -75,12 +82,12 @@ class AccessRegistryRepository:
                 row.auto_approve = bool(auto_approve)
                 row.allow_auto_renew = bool(allow_auto_renew)
                 row.is_active = bool(is_active)
-                row.note = (str(note).strip() or None) if note is not None else None
-                row.updated_by_actor = str(actor or "").strip() or None
+                row.note = normalize_optional_text(note)
+                row.updated_by_actor = normalize_optional_text(actor)
                 row.updated_at = now
                 row.valid_from = valid_from
                 row.valid_until = valid_until
-                row.metadata_json = {**dict(row.metadata_json or {}), **dict(metadata or {})}
+                row.metadata_json = merge_metadata(row.metadata_json, metadata)
             session.add(row)
             await session.commit()
             await session.refresh(row)
@@ -95,13 +102,13 @@ class AccessRegistryRepository:
                     desc(AccessRegistryEntry.updated_at),
                     desc(AccessRegistryEntry.id),
                 )
-                .limit(max(1, min(int(limit), 500)))
+                .limit(clamp_limit(limit, maximum=500))
             )
             return list(rows.scalars().all())
 
     async def list_active_entries(self, *, limit: int = 500) -> list[AccessRegistryEntry]:
         async with get_db_session() as session:
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             rows = await session.execute(
                 select(AccessRegistryEntry)
                 .where(
@@ -114,7 +121,7 @@ class AccessRegistryRepository:
                     desc(AccessRegistryEntry.updated_at),
                     desc(AccessRegistryEntry.id),
                 )
-                .limit(max(1, min(int(limit), 1000)))
+                .limit(clamp_limit(limit, maximum=1000))
             )
             return list(rows.scalars().all())
 
@@ -124,8 +131,8 @@ class AccessRegistryRepository:
             if row is None:
                 return None
             row.is_active = bool(is_active)
-            row.updated_by_actor = str(actor or "").strip() or None
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_by_actor = normalize_optional_text(actor)
+            row.updated_at = utc_now()
             session.add(row)
             await session.commit()
             await session.refresh(row)
@@ -170,13 +177,13 @@ class AccessRegistryRepository:
             row.auto_approve = bool(auto_approve)
             row.allow_auto_renew = bool(allow_auto_renew)
             row.is_active = bool(is_active)
-            row.note = (str(note).strip() or None) if note is not None else None
+            row.note = normalize_optional_text(note)
             row.valid_from = valid_from
             row.valid_until = valid_until
-            row.updated_by_actor = str(actor or "").strip() or None
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_by_actor = normalize_optional_text(actor)
+            row.updated_at = utc_now()
             if metadata:
-                row.metadata_json = {**dict(row.metadata_json or {}), **dict(metadata)}
+                row.metadata_json = merge_metadata(row.metadata_json, metadata)
             session.add(row)
             await session.commit()
             await session.refresh(row)
@@ -215,7 +222,7 @@ class AccessRegistryRepository:
             candidates = await self._load_user_identities(session, int(user_id))
             if not candidates:
                 return None
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             rows: list[AccessRegistryEntry] = []
             for identity_type, identity_value in candidates:
                 stmt = (
@@ -329,9 +336,10 @@ class AccessRegistryRepository:
     @staticmethod
     def normalize_identity(identity_type: str, identity_value: str) -> tuple[str, str]:
         normalized_type = str(identity_type or "").strip().lower()
+        normalized_type = normalize_text(identity_type, lowercase=True)
         if normalized_type not in ALLOWED_REGISTRY_IDENTITY_TYPES:
             raise ValueError(f"Unsupported access registry identity type: {identity_type}")
-        normalized_value = str(identity_value or "").strip()
+        normalized_value = normalize_text(identity_value)
         if normalized_type == "telegram_id":
             if not normalized_value.lstrip("-").isdigit():
                 raise ValueError("telegram_id must be numeric")
@@ -344,5 +352,4 @@ class AccessRegistryRepository:
 
     @staticmethod
     def _normalize_optional_email(value: str | None) -> str | None:
-        normalized = str(value or "").strip().lower()
-        return normalized or None
+        return normalize_optional_text(value, lowercase=True)

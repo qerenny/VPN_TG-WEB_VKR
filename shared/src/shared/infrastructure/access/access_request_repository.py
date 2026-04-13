@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import desc, or_
 from sqlmodel import select
 
 from shared.config.database.session import get_db_session
+from shared.infrastructure.access.repository_utils import (
+    clamp_limit,
+    merge_metadata,
+    normalize_optional_text,
+    normalize_text,
+    utc_now,
+)
 from shared.models.access.access_request_model import AccessRequest
 from shared.product_constants import ACCESS_REQUEST_KIND_NEW_ACCESS
 
@@ -33,17 +40,15 @@ class AccessRequestRepository:
             row = AccessRequest(
                 user_id=int(user_id),
                 requested_template_code=(
-                    str(requested_template_code).strip().lower()
-                    if requested_template_code
-                    else None
+                    normalize_optional_text(requested_template_code, lowercase=True)
                 ),
-                channel=str(channel).strip().lower(),
-                request_kind=str(request_kind or ACCESS_REQUEST_KIND_NEW_ACCESS).strip().lower(),
+                channel=normalize_text(channel, lowercase=True),
+                request_kind=normalize_text(request_kind or ACCESS_REQUEST_KIND_NEW_ACCESS, lowercase=True),
                 status="pending",
-                comment=(str(comment).strip() or None) if comment is not None else None,
+                comment=normalize_optional_text(comment),
                 review_note=None,
                 reviewed_by_actor=None,
-                requested_at=datetime.now(timezone.utc),
+                requested_at=utc_now(),
                 reviewed_at=None,
                 expires_at=expires_at,
                 metadata_json=dict(metadata or {}),
@@ -63,9 +68,9 @@ class AccessRequestRepository:
             stmt = select(AccessRequest).where(
                 AccessRequest.user_id == int(user_id),
                 AccessRequest.status == "pending",
-                or_(AccessRequest.expires_at.is_(None), AccessRequest.expires_at >= datetime.now(timezone.utc)),
+                or_(AccessRequest.expires_at.is_(None), AccessRequest.expires_at >= utc_now()),
             )
-            normalized_request_kind = str(request_kind or "").strip().lower()
+            normalized_request_kind = normalize_text(request_kind, lowercase=True)
             if normalized_request_kind:
                 stmt = stmt.where(AccessRequest.request_kind == normalized_request_kind)
             return (await session.execute(stmt)).scalar_one_or_none()
@@ -77,13 +82,13 @@ class AccessRequestRepository:
                     select(AccessRequest).where(
                         AccessRequest.status == "pending",
                         AccessRequest.expires_at.is_not(None),
-                        AccessRequest.expires_at < datetime.now(timezone.utc),
+                        AccessRequest.expires_at < utc_now(),
                     )
                 )
             ).scalars().all()
             if not rows:
                 return []
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             for row in rows:
                 row.status = "expired"
                 row.reviewed_by_actor = "system:auto_expire"
@@ -105,7 +110,7 @@ class AccessRequestRepository:
                 select(AccessRequest)
                 .where(AccessRequest.user_id == int(user_id))
                 .order_by(desc(AccessRequest.requested_at))
-                .limit(max(1, min(int(limit), 100)))
+                .limit(clamp_limit(limit, maximum=100))
             )
             return list(rows.scalars().all())
 
@@ -117,10 +122,10 @@ class AccessRequestRepository:
     ) -> list[AccessRequest]:
         async with get_db_session() as session:
             stmt = select(AccessRequest).order_by(desc(AccessRequest.requested_at)).limit(
-                max(1, min(int(limit), 500))
+                clamp_limit(limit, maximum=500)
             )
             if status_name:
-                stmt = stmt.where(AccessRequest.status == str(status_name).strip().lower())
+                stmt = stmt.where(AccessRequest.status == normalize_text(status_name, lowercase=True))
             rows = await session.execute(stmt)
             return list(rows.scalars().all())
 
@@ -138,16 +143,13 @@ class AccessRequestRepository:
             row = await session.get(AccessRequest, int(request_id))
             if row is None:
                 raise ValueError(f"Access request {request_id} not found")
-            row.status = str(status_name).strip().lower()
-            row.reviewed_by_actor = str(reviewed_by_actor).strip() or None
-            row.review_note = (str(review_note).strip() or None) if review_note is not None else None
-            row.reviewed_at = datetime.now(timezone.utc)
+            row.status = normalize_text(status_name, lowercase=True)
+            row.reviewed_by_actor = normalize_optional_text(reviewed_by_actor)
+            row.review_note = normalize_optional_text(review_note)
+            row.reviewed_at = utc_now()
             row.access_grant_id = int(access_grant_id) if access_grant_id is not None else None
             if metadata:
-                row.metadata_json = {
-                    **dict(row.metadata_json or {}),
-                    **dict(metadata),
-                }
+                row.metadata_json = merge_metadata(row.metadata_json, metadata)
             session.add(row)
             await session.commit()
             await session.refresh(row)
@@ -166,10 +168,7 @@ class AccessRequestRepository:
                 raise ValueError(f"Access request {request_id} not found")
             row.requested_at = requested_at
             if metadata:
-                row.metadata_json = {
-                    **dict(row.metadata_json or {}),
-                    **dict(metadata),
-                }
+                row.metadata_json = merge_metadata(row.metadata_json, metadata)
             session.add(row)
             await session.commit()
             await session.refresh(row)

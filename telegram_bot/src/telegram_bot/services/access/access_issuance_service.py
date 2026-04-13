@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 from sqlmodel import select
 
@@ -125,20 +127,15 @@ class AccessIssuanceService:
                     period=str(payload),
                 )
             )
-            await self.access_grant_repository.record_grant(
+            await self._record_grant(
                 user_id=int(resolved_user_id),
-                template_code=seed.code,
-                scope=seed.scope,
-                entitlement_kind=seed.entitlement_kind,
+                seed=seed,
                 source_type=str(source_type),
                 source_ref=source_ref,
                 expires_at=None,
                 quota_bytes=seed.quota_bytes,
-                metadata={
-                    "plan_payload": seed.payload,
-                    "channel": channel_override or "telegram",
-                    **dict(extra_metadata or {}),
-                },
+                channel=channel_override or "telegram",
+                extra_metadata=extra_metadata,
             )
             return AccessIssuanceResult(
                 activation_text=updated_text,
@@ -160,23 +157,17 @@ class AccessIssuanceService:
                 replace_existing=bool(replace_existing),
             )
 
-        await self.access_grant_repository.record_grant(
+        await self._record_grant(
             user_id=int(result.user_id),
-            template_code=seed.code,
-            scope=seed.scope,
-            entitlement_kind=seed.entitlement_kind,
+            seed=seed,
             source_type=str(source_type),
             source_ref=source_ref,
             expires_at=result.expires_at,
             quota_bytes=seed.quota_bytes,
-            metadata={
-                "plan_payload": seed.payload,
-                "channel": channel_override or "web",
-                **dict(extra_metadata or {}),
-            },
+            channel=channel_override or "web",
+            extra_metadata=extra_metadata,
         )
 
-        expiry_text = result.expires_at.astimezone().strftime("%H:%M:%S %d-%m-%Y")
         status_text = (
             "✅ Базовая конфигурация активирована"
             if result.was_created
@@ -184,7 +175,9 @@ class AccessIssuanceService:
         )
         return AccessIssuanceResult(
             activation_text=status_text,
-            activation_details_text=f"Действует до: {expiry_text}",
+            activation_details_text=(
+                f"Действует до: {self._format_expiry(result.expires_at)}"
+            ),
         )
 
     async def _activate_traffic_limited(
@@ -220,33 +213,73 @@ class AccessIssuanceService:
                 quota_bytes_override=quota_bytes_override,
             )
 
-        await self.access_grant_repository.record_grant(
+        await self._record_grant(
             user_id=int(result.user_id),
-            template_code=seed.code,
-            scope=seed.scope,
-            entitlement_kind=seed.entitlement_kind,
+            seed=seed,
             source_type=str(source_type),
             source_ref=str(source_ref),
             expires_at=result.expires_at,
             quota_bytes=result.granted_bytes,
-            metadata={
-                "plan_payload": seed.payload,
-                "channel": channel_override or ("telegram" if tg_id is not None else "web"),
-                **dict(extra_metadata or {}),
-            },
+            channel=channel_override or ("telegram" if tg_id is not None else "web"),
+            extra_metadata=extra_metadata,
         )
 
         granted_gb = result.granted_bytes // (1024 * 1024 * 1024)
         remaining_gb = result.remaining_bytes // (1024 * 1024 * 1024)
-        expiry_text = (
-            result.expires_at.astimezone().strftime("%H:%M:%S %d-%m-%Y")
-            if result.expires_at is not None
-            else "без ограничения по сроку"
-        )
         return AccessIssuanceResult(
             activation_text=f"✅ Конфигурация с лимитом трафика активирована: +{granted_gb} GB",
-            activation_details_text=f"Остаток: {remaining_gb} GB\nДействует до: {expiry_text}",
+            activation_details_text=(
+                f"Остаток: {remaining_gb} GB\n"
+                f"Действует до: {self._format_expiry(result.expires_at)}"
+            ),
         )
+
+    async def _record_grant(
+        self,
+        *,
+        user_id: int,
+        seed,
+        source_type: str,
+        source_ref: str | None,
+        expires_at: datetime | None,
+        quota_bytes: int | None,
+        channel: str,
+        extra_metadata: dict | None,
+    ) -> None:
+        await self.access_grant_repository.record_grant(
+            user_id=int(user_id),
+            template_code=seed.code,
+            scope=seed.scope,
+            entitlement_kind=seed.entitlement_kind,
+            source_type=str(source_type),
+            source_ref=source_ref,
+            expires_at=expires_at,
+            quota_bytes=quota_bytes,
+            metadata=self._build_grant_metadata(
+                seed=seed,
+                channel=channel,
+                extra_metadata=extra_metadata,
+            ),
+        )
+
+    @staticmethod
+    def _build_grant_metadata(
+        *,
+        seed,
+        channel: str,
+        extra_metadata: dict | None,
+    ) -> dict[str, Any]:
+        return {
+            "plan_payload": seed.payload,
+            "channel": channel,
+            **dict(extra_metadata or {}),
+        }
+
+    @staticmethod
+    def _format_expiry(value: datetime | None) -> str:
+        if value is None:
+            return "без ограничения по сроку"
+        return value.astimezone().strftime("%H:%M:%S %d-%m-%Y")
 
     @staticmethod
     def _build_existing_grant_result(*, seed) -> AccessIssuanceResult:

@@ -28,6 +28,11 @@ import {
   localizePlanName,
   REQUESTABLE_ACCESS_TEMPLATE_CODES,
 } from '../../utils/accessTemplates'
+import {
+  formatAccessRequestKindLabel,
+  formatAccessRequestStatusBadgeClass,
+  formatAccessRequestStatusLabel,
+} from '../../utils/accessLabels'
 import { formatMoney } from '../../utils/format'
 
 const toast = useToast()
@@ -98,7 +103,7 @@ const requestSubmitLabel = computed(() => {
   if (latestRequest.value && ['rejected', 'expired'].includes(latestRequest.value.status)) return 'Повторно запросить доступ'
   return 'Запросить доступ'
 })
-const renewalCurrentTemplateOptionLabel = computed(() => 'Продлить без смены шаблона')
+const renewalCurrentTemplateOptionLabel = computed(() => 'Без смены шаблона')
 const showRequestTemplateSelector = computed(() => requestKind.value !== 'renewal')
 const repeatRequestCooldownMs = 10 * 60 * 1000
 const repeatRequestRemainingMs = computed(() => {
@@ -222,19 +227,8 @@ function traffic_limitedPlanSummary(plan: WebCatalogPlan) {
   return `${plan.human_view_traffic_quota || 'Пакет'} · ${plan.duration_days} дней`
 }
 
-function requestStatusLabel(status: string) {
-  if (status === 'pending') return 'На рассмотрении'
-  if (status === 'approved') return 'Одобрена'
-  if (status === 'rejected') return 'Отклонена'
-  if (status === 'expired') return 'Истекла'
-  return status
-}
-
-function requestStatusBadgeClass(status: string) {
-  if (status === 'approved') return 'cabinet-badge--ok'
-  if (status === 'rejected') return 'cabinet-badge--danger'
-  return 'cabinet-badge--warm'
-}
+const requestStatusLabel = formatAccessRequestStatusLabel
+const requestStatusBadgeClass = formatAccessRequestStatusBadgeClass
 
 function requestWasAutoApproved(item: WebAccessRequestItem) {
   return Boolean(item.metadata?.auto_approved)
@@ -246,14 +240,12 @@ function requestApprovedTemplateCode(item: WebAccessRequestItem) {
 }
 
 function requestResolutionSourceLabel(item: WebAccessRequestItem) {
-  if (requestWasAutoApproved(item)) return 'Решение принято автоматически'
-  if (item.reviewed_by_actor) return 'Рассмотрено администратором'
+  if (requestWasAutoApproved(item)) return 'Автоматически'
+  if (item.reviewed_by_actor) return 'Администратор'
   return null
 }
 
-function requestKindLabel(value: string) {
-  return value === 'renewal' ? 'Продление доступа' : 'Запрос доступа'
-}
+const requestKindLabel = formatAccessRequestKindLabel
 
 function requestTemplateLabel(item: WebAccessRequestItem) {
   if (item.approved_template_label) return item.approved_template_label
@@ -393,7 +385,6 @@ onUnmounted(() => {
       <span class="material-symbols-outlined" style="font-size: 44px; opacity: 0.3;">fact_check</span>
       <p class="cabinet-subtitle" style="font-size: 17px;">Доступ управляется через реестр</p>
       <p class="cabinet-note">
-        Для этого аккаунта новые заявки, продление и перевыпуск из кабинета отключены.
         Система выдаёт доступ на 1 месяц и продлевает его автоматически, пока запись в реестре активна.
       </p>
       <RouterLink class="cabinet-btn cabinet-btn--primary" to="/app/subscriptions">
@@ -492,7 +483,7 @@ onUnmounted(() => {
 
         <p v-if="registryManagedAccess" class="request-registry-hint">
           <span class="material-symbols-outlined">info</span>
-          Этот аккаунт обслуживается через реестр. Доступ выдаётся на 1 месяц и затем продлевается автоматически, пока запись остаётся активной.
+          Доступ управляется через реестр — выдаётся на 1 месяц и продлевается автоматически.
         </p>
 
         <div v-if="accessRequests.length" class="request-history">
@@ -592,10 +583,10 @@ onUnmounted(() => {
         <div class="purchase-card__head">
           <span class="material-symbols-outlined purchase-card__icon purchase-card__icon--blue">shield</span>
           <div class="cabinet-section__head">
-            <p class="cabinet-badge">Конфигурация с лимитом трафика</p>
-            <h3 class="cabinet-subtitle">Отдельный контур и отдельный трафик</h3>
+            <p class="cabinet-badge">Доступ с лимитом трафика</p>
+            <h3 class="cabinet-subtitle">Отдельный доступ и трафик</h3>
             <p class="cabinet-copy">
-              Отдельная конфигурация со своим сроком действия и собственной квотой трафика.
+              Отдельный доступ со своим сроком действия и квотой трафика.
             </p>
           </div>
         </div>
@@ -636,7 +627,7 @@ onUnmounted(() => {
           <span class="material-symbols-outlined confirm-modal__icon">vpn_key</span>
           <div class="cabinet-section__head">
             <p class="cabinet-badge" :class="selectedScope === 'traffic_limited' ? undefined : 'cabinet-badge--warm'">
-              {{ selectedScope === 'traffic_limited' ? 'Лимит трафика' : 'Базовая конфигурация' }}
+              {{ selectedScope === 'traffic_limited' ? 'Доступ с лимитом трафика' : 'Базовая' }}
             </p>
             <h3 class="cabinet-subtitle">Подтвердить выбор</h3>
           </div>
@@ -673,7 +664,7 @@ onUnmounted(() => {
             @click="proceedToCheckout"
           >
             <span class="material-symbols-outlined">vpn_key</span>
-            {{ checkoutLoadingCode ? 'Переходим...' : 'Перейти к оформлению' }}
+            {{ checkoutLoadingCode ? 'Переходим...' : 'Перейти к оплате' }}
           </button>
         </div>
       </article>

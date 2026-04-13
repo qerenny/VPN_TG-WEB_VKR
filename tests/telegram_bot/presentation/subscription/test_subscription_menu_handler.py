@@ -12,7 +12,7 @@ from telegram_bot.shared.utils import menu_rendering
 class MockCall:
     def __init__(self, tg_id=1):
         self.id = f"cb-{tg_id}"
-        menu_rendering.clear_menu_message_id(tg_id)
+        menu_rendering._CHAT_MENU_MESSAGE_IDS.pop(tg_id, None)
         self.message = SimpleNamespace(chat=SimpleNamespace(id=tg_id))
 
 

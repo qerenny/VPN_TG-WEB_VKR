@@ -15,7 +15,10 @@ from shared.infrastructure.access.access_registry_repository import (
 from shared.infrastructure.access.access_grant_repository import AccessGrantRepository
 from shared.models.access.access_registry_entry_model import AccessRegistryEntry
 from shared.product_constants import PRODUCT_SCOPE_STANDARD
-from shared.utils.access_template_labels import format_access_template_label
+from shared.services.access.service_utils import (
+    format_template_label_or_none,
+    resolve_actor,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,17 +76,18 @@ class AccessRegistryService:
         self._ensure_registry_enabled()
         try:
             row = await self.access_registry_repository.upsert_entry(
-                identity_type=identity_type,
-                identity_value=identity_value,
-                template_code=ACCESS_REGISTRY_DEFAULT_TEMPLATE_CODE,
-                priority=int(priority),
-                auto_approve=auto_approve,
-                allow_auto_renew=allow_auto_renew,
-                is_active=is_active,
-                note=note,
-                valid_from=self._parse_optional_datetime(valid_from, field_name="valid_from"),
-                valid_until=self._parse_optional_datetime(valid_until, field_name="valid_until"),
-                actor=str(getattr(principal, "actor", "") or "").strip() or "system",
+                **self._build_entry_write_payload(
+                    identity_type=identity_type,
+                    identity_value=identity_value,
+                    priority=priority,
+                    auto_approve=auto_approve,
+                    allow_auto_renew=allow_auto_renew,
+                    is_active=is_active,
+                    note=note,
+                    valid_from=valid_from,
+                    valid_until=valid_until,
+                    principal=principal,
+                )
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -108,21 +112,22 @@ class AccessRegistryService:
         try:
             row = await self.access_registry_repository.update_entry(
                 entry_id=int(entry_id),
-                identity_type=identity_type,
-                identity_value=identity_value,
-                priority=int(priority),
-                auto_approve=auto_approve,
-                allow_auto_renew=allow_auto_renew,
-                is_active=is_active,
-                note=note,
-                valid_from=self._parse_optional_datetime(valid_from, field_name="valid_from"),
-                valid_until=self._parse_optional_datetime(valid_until, field_name="valid_until"),
-                actor=str(getattr(principal, "actor", "") or "").strip() or "system",
+                **self._build_entry_write_payload(
+                    identity_type=identity_type,
+                    identity_value=identity_value,
+                    priority=priority,
+                    auto_approve=auto_approve,
+                    allow_auto_renew=allow_auto_renew,
+                    is_active=is_active,
+                    note=note,
+                    valid_from=valid_from,
+                    valid_until=valid_until,
+                    principal=principal,
+                ),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if row is None:
-            raise HTTPException(status_code=404, detail="Access registry entry not found")
+        self._raise_if_missing(row)
         return self._serialize(row)
 
     async def batch_upsert_entries(
@@ -188,10 +193,9 @@ class AccessRegistryService:
         row = await self.access_registry_repository.set_active(
             entry_id=entry_id,
             is_active=is_active,
-            actor=str(getattr(principal, "actor", "") or "").strip() or "system",
+            actor=resolve_actor(principal),
         )
-        if row is None:
-            raise HTTPException(status_code=404, detail="Access registry entry not found")
+        self._raise_if_missing(row)
         return await self._serialize_with_runtime_status(row)
 
     async def delete_entry(
@@ -200,10 +204,7 @@ class AccessRegistryService:
         entry_id: int,
     ) -> None:
         self._ensure_registry_enabled()
-        rows = await self.access_registry_repository.list_entries(limit=500)
-        target = next((row for row in rows if int(row.id) == int(entry_id)), None)
-        if target is None:
-            raise HTTPException(status_code=404, detail="Access registry entry not found")
+        target = await self._get_entry_or_404(entry_id=entry_id)
         if bool(getattr(target, "is_active", False)):
             raise HTTPException(
                 status_code=409,
@@ -236,17 +237,7 @@ class AccessRegistryService:
         return self._serialize(row) if row is not None else None
 
     async def _serialize_with_runtime_status(self, row: AccessRegistryEntry) -> AccessRegistryEntrySnapshot:
-        matched_users_count = 0
-        issued_users_count = 0
-        if self.access_grant_repository is not None:
-            user_ids = await self.access_registry_repository.resolve_user_ids_for_entry(entry=row)
-            matched_users_count = len(user_ids)
-            for user_id in user_ids:
-                issued = await self.access_grant_repository.has_active_scope_grant(
-                    user_id=int(user_id),
-                    scope=PRODUCT_SCOPE_STANDARD,
-                )
-                issued_users_count += int(bool(issued))
+        matched_users_count, issued_users_count = await self._compute_runtime_status_counts(row)
         issuance_status_label = self._issuance_status_label(
             matched_users_count=matched_users_count,
             issued_users_count=issued_users_count,
@@ -261,13 +252,67 @@ class AccessRegistryService:
         )
 
     @staticmethod
+    def _build_entry_write_payload(
+        *,
+        identity_type: str,
+        identity_value: str,
+        priority: int,
+        auto_approve: bool,
+        allow_auto_renew: bool,
+        is_active: bool,
+        note: str | None,
+        valid_from: str | None,
+        valid_until: str | None,
+        principal: Any,
+    ) -> dict[str, Any]:
+        return {
+            "identity_type": identity_type,
+            "identity_value": identity_value,
+            "template_code": ACCESS_REGISTRY_DEFAULT_TEMPLATE_CODE,
+            "priority": int(priority),
+            "auto_approve": auto_approve,
+            "allow_auto_renew": allow_auto_renew,
+            "is_active": is_active,
+            "note": note,
+            "valid_from": AccessRegistryService._parse_optional_datetime(valid_from, field_name="valid_from"),
+            "valid_until": AccessRegistryService._parse_optional_datetime(valid_until, field_name="valid_until"),
+            "actor": resolve_actor(principal),
+        }
+
+    async def _compute_runtime_status_counts(self, row: AccessRegistryEntry) -> tuple[int, int]:
+        if self.access_grant_repository is None:
+            return 0, 0
+
+        user_ids = await self.access_registry_repository.resolve_user_ids_for_entry(entry=row)
+        matched_users_count = len(user_ids)
+        issued_users_count = 0
+        for user_id in user_ids:
+            issued = await self.access_grant_repository.has_active_scope_grant(
+                user_id=int(user_id),
+                scope=PRODUCT_SCOPE_STANDARD,
+            )
+            issued_users_count += int(bool(issued))
+        return matched_users_count, issued_users_count
+
+    async def _get_entry_or_404(self, *, entry_id: int) -> AccessRegistryEntry:
+        rows = await self.access_registry_repository.list_entries(limit=500)
+        target = next((row for row in rows if int(row.id) == int(entry_id)), None)
+        self._raise_if_missing(target)
+        return target
+
+    @staticmethod
+    def _raise_if_missing(row: AccessRegistryEntry | None) -> None:
+        if row is None:
+            raise HTTPException(status_code=404, detail="Access registry entry not found")
+
+    @staticmethod
     def _serialize(row: AccessRegistryEntry) -> AccessRegistryEntrySnapshot:
         return AccessRegistryEntrySnapshot(
             id=int(row.id),
             identity_type=str(row.identity_type),
             identity_value=str(row.identity_value),
             template_code=str(row.template_code),
-            template_label=format_access_template_label(str(row.template_code)),
+            template_label=format_template_label_or_none(str(row.template_code)) or "Не указан",
             priority=int(row.priority),
             auto_approve=bool(row.auto_approve),
             allow_auto_renew=bool(getattr(row, "allow_auto_renew", False)),

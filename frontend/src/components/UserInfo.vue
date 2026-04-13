@@ -299,14 +299,14 @@ const quickStartActions = computed(() => {
 })
 
 const productTag = computed(() =>
-  isTrafficLimitedScope.value ? 'Конфигурация с лимитом трафика' : 'Конфигурация доступа',
+  isTrafficLimitedScope.value ? 'Доступ с лимитом трафика' : 'Доступ',
 )
 
 const statusTitle = computed(() => {
   if (isTrafficLimitedScope.value) {
     return userData.value?.sub_is_active
-      ? 'Конфигурация с лимитом трафика активна и готова к подключению'
-      : 'Конфигурация с лимитом трафика сейчас неактивна'
+      ? 'Доступ с лимитом трафика активен и готов к подключению'
+      : 'Доступ с лимитом трафика сейчас неактивен'
   }
 
   return userData.value?.sub_is_active
@@ -318,7 +318,7 @@ const statusLead = computed(() => {
   if (isTrafficLimitedScope.value) {
     return userData.value?.sub_is_active
       ? 'Импортируйте ссылку в приложение и следите за остатком трафика.'
-      : 'Лимит трафика закончился или срок действия истек. Напишите в поддержку, если доступ должен быть активен.'
+      : 'Трафик закончился или срок действия истёк. Напишите в поддержку, если доступ должен быть активен.'
   }
 
   return userData.value?.sub_is_active

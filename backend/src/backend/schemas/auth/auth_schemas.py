@@ -25,11 +25,6 @@ class WebRegisterVerifyRequest(BaseModel):
     device_name: str | None = None
 
 
-class WebRegistrationStartResponse(BaseModel):
-    status: str
-    verification_required: bool
-
-
 class WebPasswordResetRequest(BaseModel):
     email: str = Field(min_length=3)
     code: str = Field(min_length=4)

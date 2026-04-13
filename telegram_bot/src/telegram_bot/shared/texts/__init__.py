@@ -1,7 +1,6 @@
 import random
 
 from telegram_bot.shared.texts import (
-    admin_messages,
     instructions_messages,
     payments_messages,
     referrals_messages,
@@ -20,7 +19,6 @@ _category_modules = {
     **payments_messages.categories,
     **instructions_messages.categories,
     **users_messages.categories,
-    **admin_messages.categories,
     **shared_messages.categories,
 }
 

@@ -11,6 +11,7 @@ from shared.config.database.session import get_db_session
 from shared.config.settings import get_effective_product_feature_settings
 from shared.infrastructure.access.access_grant_repository import AccessGrantRepository
 from shared.infrastructure.access.access_request_repository import AccessRequestRepository
+from shared.infrastructure.access.repository_utils import utc_now
 from shared.models.access.access_request_model import AccessRequest
 from shared.models.payments.plan_model import Plan
 from shared.product_constants import (
@@ -20,6 +21,10 @@ from shared.product_constants import (
     PRODUCT_SCOPE_TRAFFIC_LIMITED,
 )
 from shared.services.access.access_registry_service import AccessRegistryService
+from shared.services.access.service_utils import (
+    format_template_label_or_none,
+    resolve_actor,
+)
 from shared.utils.access_template_labels import format_access_template_label, is_requestable_access_template_code
 from telegram_bot.services.access.access_issuance_service import AccessIssuanceService
 
@@ -165,7 +170,7 @@ class AccessRequestService:
         if normalized_decision not in {"approve", "reject"}:
             raise HTTPException(status_code=400, detail="Unsupported review decision")
 
-        actor = str(getattr(principal, "actor", "") or "").strip() or "system"
+        actor = resolve_actor(principal)
         if normalized_decision == "reject":
             updated = await self.access_request_repository.mark_reviewed(
                 request_id=int(request_id),
@@ -186,30 +191,16 @@ class AccessRequestService:
                 status_code=400,
                 detail="template_code is required to approve access request",
             )
-        plan = await self._load_plan_or_404(resolved_template_code)
-        self._ensure_plan_scope_enabled(str(plan.scope))
-
-        source_ref = f"access_request:{int(row.id)}"
-        await self.access_issuance_service.activate_from_payload(
-            payload=str(plan.payload),
+        updated = await self._approve_request(
+            row=row,
+            template_code=resolved_template_code,
             source_type="request_approval",
-            source_ref=source_ref,
-            user_id=int(row.user_id),
+            reviewed_by_actor=actor,
+            review_note=review_note,
             extra_metadata={
                 "request_kind": str(getattr(row, "request_kind", ACCESS_REQUEST_KIND_NEW_ACCESS)),
             },
-        )
-        grant = await self.access_grant_repository.get_by_source(
-            source_type="request_approval",
-            source_ref=source_ref,
-        )
-        updated = await self.access_request_repository.mark_reviewed(
-            request_id=int(request_id),
-            status_name="approved",
-            reviewed_by_actor=actor,
-            review_note=review_note,
-            access_grant_id=int(grant.id) if grant is not None and grant.id is not None else None,
-            metadata={"approved_template_code": resolved_template_code},
+            review_metadata={"approved_template_code": resolved_template_code},
         )
         await self._notify_reviewed(updated)
         return self._serialize_request(updated)
@@ -228,7 +219,7 @@ class AccessRequestService:
         if str(row.status).strip().lower() != "pending":
             raise HTTPException(status_code=409, detail="Only pending access requests can be repeated")
 
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         requested_at = row.requested_at
         if requested_at.tzinfo is None:
             requested_at = requested_at.replace(tzinfo=timezone.utc)
@@ -271,16 +262,8 @@ class AccessRequestService:
             id=int(row.id),
             user_id=int(row.user_id),
             requested_template_code=requested_template_code,
-            requested_template_label=(
-                format_access_template_label(requested_template_code)
-                if requested_template_code is not None
-                else None
-            ),
-            approved_template_label=(
-                format_access_template_label(approved_template_code)
-                if approved_template_code is not None
-                else None
-            ),
+            requested_template_label=format_template_label_or_none(requested_template_code),
+            approved_template_label=format_template_label_or_none(approved_template_code),
             access_grant_id=row.access_grant_id,
             channel=str(row.channel),
             request_kind=str(getattr(row, "request_kind", ACCESS_REQUEST_KIND_NEW_ACCESS)),
@@ -310,7 +293,7 @@ class AccessRequestService:
     def _build_pending_expiry() -> datetime:
         features = get_effective_product_feature_settings()
         ttl_hours = max(1, int(getattr(features, "access_request_pending_ttl_hours", 72)))
-        return datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+        return utc_now() + timedelta(hours=ttl_hours)
 
     @staticmethod
     async def _load_plan_or_404(template_code: str) -> Plan:
@@ -358,31 +341,17 @@ class AccessRequestService:
             return self._serialize_request(row)
 
         resolved_template_code = requested_template_code or str(match.template_code).strip().lower()
-        plan = await self._load_plan_or_404(resolved_template_code)
-        self._ensure_plan_scope_enabled(str(plan.scope))
-
-        source_ref = f"access_request:{int(row.id)}"
-        await self.access_issuance_service.activate_from_payload(
-            payload=str(plan.payload),
+        updated = await self._approve_request(
+            row=row,
+            template_code=resolved_template_code,
             source_type="access_registry",
-            source_ref=source_ref,
-            user_id=int(row.user_id),
+            reviewed_by_actor="access_registry",
+            review_note="Auto-approved by access registry",
             extra_metadata={
                 "request_kind": request_kind,
                 "access_registry_entry_id": int(match.id),
             },
-        )
-        grant = await self.access_grant_repository.get_by_source(
-            source_type="access_registry",
-            source_ref=source_ref,
-        )
-        updated = await self.access_request_repository.mark_reviewed(
-            request_id=int(row.id),
-            status_name="approved",
-            reviewed_by_actor="access_registry",
-            review_note="Auto-approved by access registry",
-            access_grant_id=int(grant.id) if grant is not None and grant.id is not None else None,
-            metadata={
+            review_metadata={
                 "approved_template_code": resolved_template_code,
                 "access_registry_entry_id": int(match.id),
                 "auto_approved": True,
@@ -391,20 +360,61 @@ class AccessRequestService:
         await self._notify_reviewed(updated)
         return self._serialize_request(updated)
 
+    async def _approve_request(
+        self,
+        *,
+        row: AccessRequest,
+        template_code: str,
+        source_type: str,
+        reviewed_by_actor: str,
+        review_note: str | None,
+        extra_metadata: dict[str, Any],
+        review_metadata: dict[str, Any],
+    ) -> AccessRequest:
+        plan = await self._load_plan_or_404(template_code)
+        self._ensure_plan_scope_enabled(str(plan.scope))
+
+        source_ref = f"access_request:{int(row.id)}"
+        await self.access_issuance_service.activate_from_payload(
+            payload=str(plan.payload),
+            source_type=source_type,
+            source_ref=source_ref,
+            user_id=int(row.user_id),
+            extra_metadata=extra_metadata,
+        )
+        grant = await self.access_grant_repository.get_by_source(
+            source_type=source_type,
+            source_ref=source_ref,
+        )
+        return await self.access_request_repository.mark_reviewed(
+            request_id=int(row.id),
+            status_name="approved",
+            reviewed_by_actor=reviewed_by_actor,
+            review_note=review_note,
+            access_grant_id=int(grant.id) if grant is not None and grant.id is not None else None,
+            metadata=review_metadata,
+        )
+
+    @staticmethod
+    def _build_review_notification_payload(row: AccessRequest) -> dict[str, Any]:
+        metadata = dict(row.metadata_json or {})
+        template_code = str(metadata.get("approved_template_code") or row.requested_template_code or "").strip() or None
+        return {
+            "user_id": int(row.user_id),
+            "request_id": int(row.id),
+            "status": str(row.status),
+            "request_kind": str(getattr(row, "request_kind", ACCESS_REQUEST_KIND_NEW_ACCESS)),
+            "template_code": template_code,
+            "review_note": row.review_note,
+            "reviewed_by_actor": row.reviewed_by_actor,
+            "auto_approved": bool(metadata.get("auto_approved")),
+        }
+
     async def _notify_reviewed(self, row: AccessRequest) -> None:
         if self.notification_service is None:
             return
-        metadata = dict(row.metadata_json or {})
-        template_code = str(metadata.get("approved_template_code") or row.requested_template_code or "").strip() or None
         await self.notification_service.notify_user_request_reviewed(
-            user_id=int(row.user_id),
-            request_id=int(row.id),
-            status=str(row.status),
-            request_kind=str(getattr(row, "request_kind", ACCESS_REQUEST_KIND_NEW_ACCESS)),
-            template_code=template_code,
-            review_note=row.review_note,
-            reviewed_by_actor=row.reviewed_by_actor,
-            auto_approved=bool(metadata.get("auto_approved")),
+            **self._build_review_notification_payload(row)
         )
 
     async def _expire_stale_pending_requests(self) -> None:
@@ -413,14 +423,7 @@ class AccessRequestService:
             return
         for row in expired_rows:
             await self.notification_service.notify_user_request_reviewed(
-                user_id=int(row.user_id),
-                request_id=int(row.id),
-                status=str(row.status),
-                request_kind=str(getattr(row, "request_kind", ACCESS_REQUEST_KIND_NEW_ACCESS)),
-                template_code=str(row.requested_template_code or "").strip() or None,
-                review_note=row.review_note,
-                reviewed_by_actor=row.reviewed_by_actor,
-                auto_approved=False,
+                **self._build_review_notification_payload(row)
             )
 
     async def _resolve_default_renewal_template_code(self, user_id: int) -> str | None:

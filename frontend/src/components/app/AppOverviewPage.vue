@@ -22,6 +22,11 @@ import {
   type FrontendPublicConfig,
 } from '../../api/publicConfig'
 import { useSessionState } from '../../stores/session'
+import {
+  formatAccessGrantSourceLabel,
+  formatAccessGrantStatusLabel,
+  formatAccessScopeLabel,
+} from '../../utils/accessLabels'
 import { formatAccessTemplateLabel } from '../../utils/accessTemplates'
 
 const toast = useToast()
@@ -108,29 +113,9 @@ const accessActionLabel = computed(() => (
 const recentAccessGrants = computed(() => accessGrants.value.slice(0, 3))
 const activeAccessGrant = computed(() => accessGrants.value.find((item) => item.status === 'active') || null)
 
-function accessGrantSourceLabel(sourceType: string) {
-  const normalized = String(sourceType || '').trim().toLowerCase()
-  if (normalized === 'payment') return 'Оплата'
-  if (normalized === 'request_approval') return 'Заявка'
-  if (normalized === 'access_registry') return 'Реестр'
-  if (normalized === 'access_registry_auto_renew') return 'Автопродление'
-  if (normalized === 'admin_override') return 'Администратор'
-  return normalized || 'Не указан'
-}
-
-function accessGrantScopeLabel(scope: string) {
-  return String(scope || '').trim().toLowerCase() === 'traffic_limited'
-    ? 'Доступ с лимитом трафика'
-    : 'Базовая'
-}
-
-function accessGrantStatusLabel(status: string) {
-  const normalized = String(status || '').trim().toLowerCase()
-  if (normalized === 'active') return 'Активен'
-  if (normalized === 'expired') return 'Истёк'
-  if (normalized === 'revoked') return 'Отозван'
-  return status || '—'
-}
+const accessGrantSourceLabel = formatAccessGrantSourceLabel
+const accessGrantScopeLabel = formatAccessScopeLabel
+const accessGrantStatusLabel = formatAccessGrantStatusLabel
 
 function activeAccessReasonTitle() {
   const grant = activeAccessGrant.value

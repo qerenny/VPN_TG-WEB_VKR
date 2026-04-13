@@ -32,6 +32,12 @@ import {
   buildAccessTemplateOptions,
   formatAccessTemplateLabel,
 } from '../utils/accessTemplates'
+import {
+  formatAccessGrantSourceLabel,
+  formatAccessRequestKindLabel,
+  formatAccessRequestStatusLabel,
+  formatAccessScopeLabel,
+} from '../utils/accessLabels'
 
 const toast = useToast()
 
@@ -215,14 +221,14 @@ const actionCatalog: Record<AdminActionType, ActionMeta> = {
   },
   issue_access_override: {
     label: 'Выдать доступ по шаблону',
-    help: 'Ручная выдача доступа через общий access-grant контур.',
+    help: 'Ручная выдача доступа по шаблону с записью в журнал выдач.',
     icon: 'admin_panel_settings',
     scope: 'user',
     uses: ['adminOverrideTemplateCode', 'adminOverrideReplaceExisting', 'adminOverrideDurationDays', 'adminOverrideQuotaGb'],
   },
   revoke_access: {
     label: 'Отозвать доступ',
-    help: 'Принудительно отзывает выбранный контур доступа и записывает это в журнал.',
+    help: 'Принудительно отзывает выбранный тип доступа и записывает это в журнал.',
     icon: 'block',
     scope: 'user',
     destructive: true,
@@ -313,7 +319,7 @@ const rawActionGroups = [
     actions: ['grant_referral_bonus', 'unlink_problem_entity'] as AdminActionType[],
   },
   {
-    title: 'Лимит трафика',
+    title: 'Доступ с лимитом трафика',
     icon: 'shield',
     actions: ['grant_traffic_limited_package', 'sync_traffic_limited'] as AdminActionType[],
   },
@@ -479,35 +485,16 @@ function paymentBadgeClass(status?: string) {
   return 'cabinet-badge--muted'
 }
 
-function accessGrantSourceLabel(sourceType?: string) {
-  const normalized = String(sourceType || '').toLowerCase()
-  if (normalized === 'payment') return 'Оформление доступа'
-  if (normalized === 'request_approval') return 'Заявка'
-  if (normalized === 'access_registry') return 'Реестр доступа'
-  if (normalized === 'access_registry_auto_renew') return 'Автопродление по реестру'
-  if (normalized === 'admin_override') return 'Административная выдача'
-  return normalized || '—'
-}
-
-function accessGrantScopeLabel(scope?: string) {
-  return String(scope || '').toLowerCase() === 'traffic_limited' ? 'Лимит трафика' : 'Базовая конфигурация'
-}
+const accessGrantSourceLabel = formatAccessGrantSourceLabel
+const accessGrantScopeLabel = formatAccessScopeLabel
+const accessRequestStatusLabel = formatAccessRequestStatusLabel
 
 function accessTemplateLabel(templateCode?: string | null) {
   return formatAccessTemplateLabel(templateCode)
 }
 
-function accessRequestStatusLabel(status?: string) {
-  const normalized = String(status || '').trim().toLowerCase()
-  if (normalized === 'pending') return 'На рассмотрении'
-  if (normalized === 'approved') return 'Одобрена'
-  if (normalized === 'rejected') return 'Отклонена'
-  if (normalized === 'expired') return 'Истекла'
-  return normalized || '—'
-}
-
 function accessRequestKindLabel(value?: string) {
-  return String(value || '').trim().toLowerCase() === 'renewal' ? 'Продление доступа' : 'Новый доступ'
+  return formatAccessRequestKindLabel(value, { includeAccessNoun: true })
 }
 
 function accessTemplateOptionsWithCurrent(templateCode?: string | null) {
@@ -1215,7 +1202,7 @@ onMounted(() => {
             </label>
             <label class="adm-field">
               <span class="cabinet-form-label">Шаблон доступа</span>
-              <input class="cabinet-input" type="text" value="1 месяц · Базовая конфигурация" disabled />
+              <input class="cabinet-input" type="text" value="🔑 1 месяц · Базовая" disabled />
             </label>
             <label class="adm-field adm-field--grow">
               <span class="cabinet-form-label">Комментарий</span>
@@ -1266,7 +1253,7 @@ onMounted(() => {
             </label>
             <label class="adm-field">
               <span class="cabinet-form-label">Шаблон доступа</span>
-              <input class="cabinet-input" type="text" value="1 месяц · Базовая конфигурация" disabled />
+              <input class="cabinet-input" type="text" value="🔑 1 месяц · Базовая" disabled />
             </label>
             <label class="adm-field adm-field--grow">
               <span class="cabinet-form-label">Комментарий</span>
@@ -1513,10 +1500,10 @@ onMounted(() => {
                       <span class="cabinet-form-label">Заменить текущий доступ</span>
                     </label>
                     <label v-if="actionCatalog[aType].uses?.includes('revokeAccessScope')" class="adm-field">
-                      <span class="cabinet-form-label">Контур</span>
+                      <span class="cabinet-form-label">Тип доступа</span>
                       <select v-model="revokeAccessScope" class="cabinet-input">
-                        <option value="standard">Базовая конфигурация</option>
-                        <option value="traffic_limited">Лимит трафика</option>
+                        <option value="standard">Базовая</option>
+                        <option value="traffic_limited">Доступ с лимитом трафика</option>
                       </select>
                     </label>
                     <label v-if="actionCatalog[aType].uses?.includes('referralBonusDays')" class="adm-field">
@@ -1755,7 +1742,7 @@ onMounted(() => {
               <div v-show="activeUserTab === 'subscriptions'" class="adm-tab-content">
                 <div class="adm-kv-grid">
                   <article v-if="standardConfigEnabled" class="adm-kv-card">
-                    <h3 class="adm-kv-card__title"><span class="material-symbols-outlined">vpn_key</span> Базовая конфигурация</h3>
+                    <h3 class="adm-kv-card__title"><span class="material-symbols-outlined">vpn_key</span> Базовая</h3>
                     <dl class="adm-kv">
                       <div><dt>доступ до</dt><dd>{{ selectedUser.profile.expiration_date || '—' }}</dd></div>
                       <div><dt>uuid</dt><dd class="adm-kv__mono">{{ selectedUser.profile.uuid || '—' }}</dd></div>
@@ -1763,7 +1750,7 @@ onMounted(() => {
                     </dl>
                   </article>
                   <article v-if="trafficLimitedConfigEnabled" class="adm-kv-card">
-                    <h3 class="adm-kv-card__title"><span class="material-symbols-outlined">shield</span> Лимит трафика</h3>
+                    <h3 class="adm-kv-card__title"><span class="material-symbols-outlined">shield</span> Доступ с лимитом трафика</h3>
                     <dl class="adm-kv">
                       <div><dt>статус</dt><dd>
                         <span class="cabinet-badge" :class="selectedUser.profile.traffic_limited?.is_enabled ? 'cabinet-badge--ok' : 'cabinet-badge--muted'">
@@ -1788,7 +1775,7 @@ onMounted(() => {
                         <tr>
                           <th>ID</th>
                           <th>Источник</th>
-                          <th>Контур</th>
+                          <th>Тип доступа</th>
                           <th>Шаблон</th>
                           <th>Статус</th>
                           <th>Создан</th>
@@ -1849,7 +1836,7 @@ onMounted(() => {
                     </dl>
                   </article>
                   <article v-if="trafficLimitedConfigEnabled" class="adm-kv-card">
-                    <h3 class="adm-kv-card__title"><span class="material-symbols-outlined">shield</span> Лимит трафика</h3>
+                    <h3 class="adm-kv-card__title"><span class="material-symbols-outlined">shield</span> Доступ с лимитом трафика</h3>
                     <dl class="adm-kv">
                       <div><dt>статус</dt><dd>{{ selectedUser.diagnostics.traffic_limited.status }}</dd></div>
                       <div><dt>остаток</dt><dd>{{ formatTrafficBytes(selectedUser.diagnostics.traffic_limited.remaining_bytes) }}</dd></div>

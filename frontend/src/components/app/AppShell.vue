@@ -84,7 +84,7 @@ onMounted(async () => {
               <span class="brand-title cabinet-header__brand-text">{{ product.short_name }}</span>
               <span class="cabinet-header__name">{{ displayName }}</span>
             </h1>
-            <p class="cabinet-header__lead">Конфигурации доступа, подключение и профиль</p>
+            <p class="cabinet-header__lead">Доступ, подключение и профиль</p>
           </div>
         </div>
         <div class="cabinet-header__actions">

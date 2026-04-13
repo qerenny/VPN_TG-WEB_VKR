@@ -1,36 +1,58 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import or_
 from sqlmodel import select
 
 from shared.config.database.session import get_db_session
+from shared.infrastructure.access.repository_utils import clamp_limit, merge_metadata, normalize_string_list, normalize_optional_text, utc_now
 from shared.models.access.access_grant_model import AccessGrant
 from shared.models.payments.plan_model import Plan
 from shared.product_constants import ACCESS_GRANT_STATUS_ACTIVE, ACCESS_GRANT_STATUS_EXPIRED, ACCESS_GRANT_STATUS_REVOKED
 
 
 class AccessGrantRepository:
+    @staticmethod
+    def _ordered_grants_stmt():
+        return select(AccessGrant).order_by(AccessGrant.created_at.desc(), AccessGrant.id.desc())
+
+    @staticmethod
+    def _apply_revocation(
+        row: AccessGrant,
+        *,
+        now: datetime,
+        actor: str,
+        reason: str | None = None,
+    ) -> None:
+        row.status = ACCESS_GRANT_STATUS_REVOKED
+        row.revoked_at = now
+        row.metadata_json = merge_metadata(
+            row.metadata_json,
+            {
+                "revoked_by_actor": normalize_optional_text(actor),
+                "revoke_reason": normalize_optional_text(reason),
+            },
+        )
+
     async def list_active_grants_by_source_types(
         self,
         *,
         source_types: list[str],
         limit: int = 500,
     ) -> list[AccessGrant]:
-        normalized = [str(item).strip().lower() for item in source_types if str(item).strip()]
+        normalized = normalize_string_list(source_types)
         if not normalized:
             return []
         await self.reconcile_expired_grants()
         async with get_db_session() as session:
             rows = await session.execute(
-                select(AccessGrant)
+                self._ordered_grants_stmt()
                 .where(
                     AccessGrant.status == ACCESS_GRANT_STATUS_ACTIVE,
                     or_(*[AccessGrant.source_type == item for item in normalized]),
                 )
-                .order_by(AccessGrant.created_at.desc(), AccessGrant.id.desc())
-                .limit(max(1, min(int(limit), 1000)))
+                .limit(clamp_limit(limit, maximum=1000))
             )
             return list(rows.scalars().all())
 
@@ -52,7 +74,7 @@ class AccessGrantRepository:
                     AccessGrant.expires_at <= boundary,
                 )
                 .order_by(AccessGrant.expires_at.asc(), AccessGrant.id.asc())
-                .limit(max(1, min(int(limit), 500)))
+                .limit(clamp_limit(limit, maximum=500))
             )
             return list(rows.scalars().all())
 
@@ -64,10 +86,9 @@ class AccessGrantRepository:
     ) -> list[AccessGrant]:
         async with get_db_session() as session:
             rows = await session.execute(
-                select(AccessGrant)
+                self._ordered_grants_stmt()
                 .where(AccessGrant.user_id == int(user_id))
-                .order_by(AccessGrant.created_at.desc(), AccessGrant.id.desc())
-                .limit(max(1, min(int(limit), 200)))
+                .limit(clamp_limit(limit, maximum=200))
             )
             return list(rows.scalars().all())
 
@@ -96,18 +117,17 @@ class AccessGrantRepository:
         await self.reconcile_expired_grants(user_id=int(user_id))
         async with get_db_session() as session:
             rows = await session.execute(
-                select(AccessGrant)
+                self._ordered_grants_stmt()
                 .where(
                     AccessGrant.user_id == int(user_id),
                     AccessGrant.status == ACCESS_GRANT_STATUS_ACTIVE,
                 )
-                .order_by(AccessGrant.created_at.desc(), AccessGrant.id.desc())
-                .limit(max(1, min(int(limit), 200)))
+                .limit(clamp_limit(limit, maximum=200))
             )
             return list(rows.scalars().all())
 
     async def reconcile_expired_grants(self, *, user_id: int | None = None) -> list[AccessGrant]:
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         async with get_db_session() as session:
             stmt = select(AccessGrant).where(
                 AccessGrant.status == ACCESS_GRANT_STATUS_ACTIVE,
@@ -121,10 +141,7 @@ class AccessGrantRepository:
                 return []
             for row in rows:
                 row.status = ACCESS_GRANT_STATUS_EXPIRED
-                row.metadata_json = {
-                    **dict(row.metadata_json or {}),
-                    "expired_at": now.isoformat(),
-                }
+                row.metadata_json = merge_metadata(row.metadata_json, {"expired_at": now.isoformat()})
                 session.add(row)
             await session.commit()
             for row in rows:
@@ -140,7 +157,7 @@ class AccessGrantRepository:
         reason: str | None = None,
     ) -> list[AccessGrant]:
         await self.reconcile_expired_grants(user_id=int(user_id))
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         async with get_db_session() as session:
             rows = (
                 await session.execute(
@@ -154,13 +171,7 @@ class AccessGrantRepository:
             if not rows:
                 return []
             for row in rows:
-                row.status = ACCESS_GRANT_STATUS_REVOKED
-                row.revoked_at = now
-                row.metadata_json = {
-                    **dict(row.metadata_json or {}),
-                    "revoked_by_actor": str(actor or "").strip() or None,
-                    "revoke_reason": (str(reason).strip() or None) if reason is not None else None,
-                }
+                self._apply_revocation(row, now=now, actor=actor, reason=reason)
                 session.add(row)
             await session.commit()
             for row in rows:
@@ -177,10 +188,10 @@ class AccessGrantRepository:
         reason: str | None = None,
     ) -> list[AccessGrant]:
         await self.reconcile_expired_grants(user_id=int(user_id))
-        normalized = [str(item).strip().lower() for item in source_types if str(item).strip()]
+        normalized = normalize_string_list(source_types)
         if not normalized:
             return []
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         async with get_db_session() as session:
             rows = (
                 await session.execute(
@@ -195,13 +206,7 @@ class AccessGrantRepository:
             if not rows:
                 return []
             for row in rows:
-                row.status = ACCESS_GRANT_STATUS_REVOKED
-                row.revoked_at = now
-                row.metadata_json = {
-                    **dict(row.metadata_json or {}),
-                    "revoked_by_actor": str(actor or "").strip() or None,
-                    "revoke_reason": (str(reason).strip() or None) if reason is not None else None,
-                }
+                self._apply_revocation(row, now=now, actor=actor, reason=reason)
                 session.add(row)
             await session.commit()
             for row in rows:

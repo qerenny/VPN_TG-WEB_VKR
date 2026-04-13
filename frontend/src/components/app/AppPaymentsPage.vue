@@ -10,6 +10,8 @@ import {
   fetchPublicConfig,
   type FrontendFeatureFlags,
 } from '../../api/publicConfig'
+import { formatAccessScopeLabel } from '../../utils/accessLabels'
+import { localizePlanName } from '../../utils/accessTemplates'
 import { formatDateTime, formatMoney } from '../../utils/format'
 
 const toast = useToast()
@@ -72,19 +74,6 @@ function statusBorderClass(status: string): string {
     case 'canceled': return 'payment-row--canceled'
     default: return ''
   }
-}
-
-function localizePlanName(name: string): string {
-  const names: Record<string, string> = {
-    '1 month access': 'Доступ на 1 месяц',
-    '3 months access': 'Доступ на 3 месяца',
-    '6 months access': 'Доступ на 6 месяцев',
-    '12 months access': 'Доступ на 12 месяцев',
-    'Traffic-limited access 15 GB': 'Лимит трафика 15 ГБ',
-    'Traffic-limited access 35 GB': 'Лимит трафика 35 ГБ',
-    'Traffic-limited access 80 GB': 'Лимит трафика 80 ГБ',
-  }
-  return names[name] || name
 }
 
 async function loadPayments(options: { silent?: boolean } = {}) {
@@ -153,7 +142,7 @@ onBeforeUnmount(() => {
           <div class="payment-row__main">
             <div class="payment-row__badges">
               <span class="cabinet-badge" :class="payment.scope === 'traffic_limited' ? '' : 'cabinet-badge--warm'">
-                {{ payment.scope === 'traffic_limited' ? 'Лимит трафика' : 'Базовая конфигурация' }}
+                {{ formatAccessScopeLabel(payment.scope) }}
               </span>
               <span class="cabinet-badge" :class="statusBadgeClass(payment.runtime_status)">
                 {{ statusLabel(payment.runtime_status) }}
