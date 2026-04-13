@@ -276,7 +276,9 @@ dep.env
 frontend/.env.production
 !tests/integration/.env.ci
 TMSP_Lab3_Testing_Report.md
-docs/
+docs/*
+!docs/
+!docs/ai_context.md
 
 # Local assistant/project memory
 .claude/
