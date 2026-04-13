@@ -279,6 +279,9 @@ TMSP_Lab3_Testing_Report.md
 docs/*
 !docs/
 !docs/ai_context.md
+!docs/vkr_main.docx
+!docs/vkr_working.docx
+
 
 # Local assistant/project memory
 .claude/
