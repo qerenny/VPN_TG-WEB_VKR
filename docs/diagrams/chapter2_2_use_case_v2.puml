@@ -1,0 +1,73 @@
+@startuml chapter2_2_use_case
+left to right direction
+
+actor "Пользователь" as User
+actor "Администратор" as Admin
+actor "Автоматический контур\nсистемы" as Auto
+actor "3x-ui API\n(внешняя система)" as XUI
+actor "Платёжный шлюз\n(внешняя система)" as PaymentGateway
+
+rectangle "Автоматизированный сервис\nзащищённого удалённого доступа" {
+  usecase "Зарегистрироваться\nили идентифицироваться" as UC_Identify
+  usecase "Связать аккаунты" as UC_LinkAccounts
+  usecase "Подать заявку\nна доступ" as UC_SubmitRequest
+  usecase "Активировать доступ\nпо основанию" as UC_ActivateByBasis
+  usecase "Получить\nконфигурацию" as UC_GetConfig
+  usecase "Проверить\nстатус доступа" as UC_CheckStatus
+  usecase "Продлить доступ" as UC_RenewAccess
+  usecase "Выбрать план\nи оплатить" as UC_SelectPlanPay
+
+  usecase "Просмотреть заявки" as UC_ViewRequests
+  usecase "Рассмотреть заявку" as UC_ReviewRequest
+  usecase "Выдать доступ\nвручную" as UC_ManualIssue
+  usecase "Отозвать доступ" as UC_RevokeAccess
+  usecase "Ограничить\nпользователя" as UC_RestrictUser
+  usecase "Управлять реестром\nразрешённых субъектов" as UC_ManageRegistry
+  usecase "Просмотреть\nжурнал операций" as UC_ViewAudit
+  usecase "Управлять сервисными\nусловиями доступа" as UC_ManageServiceTerms
+
+  usecase "Уведомить\nоб истечении срока" as UC_NotifyExpiry
+  usecase "Деактивировать\nпросроченный доступ" as UC_DeactivateExpired
+  usecase "Синхронизировать\nсостояние доступа" as UC_SyncState
+  usecase "Обработать\nсобытие оплаты" as UC_ProcessPaymentEvent
+  usecase "Выполнить техническое\nизменение доступа" as UC_TechnicalAccessChange
+}
+
+User -- UC_Identify
+User -- UC_LinkAccounts
+User -- UC_SubmitRequest
+User -- UC_ActivateByBasis
+User -- UC_GetConfig
+User -- UC_CheckStatus
+User -- UC_RenewAccess
+User -- UC_SelectPlanPay
+
+Admin -- UC_ViewRequests
+Admin -- UC_ReviewRequest
+Admin -- UC_ManualIssue
+Admin -- UC_RevokeAccess
+Admin -- UC_RestrictUser
+Admin -- UC_ManageRegistry
+Admin -- UC_ViewAudit
+Admin -- UC_ManageServiceTerms
+
+Auto -- UC_NotifyExpiry
+Auto -- UC_DeactivateExpired
+Auto -- UC_SyncState
+Auto -- UC_ProcessPaymentEvent
+Auto -- UC_ActivateByBasis
+
+XUI -- UC_TechnicalAccessChange
+XUI -- UC_SyncState
+PaymentGateway -- UC_SelectPlanPay
+PaymentGateway -- UC_ProcessPaymentEvent
+
+UC_ActivateByBasis ..> UC_TechnicalAccessChange : <<include>>
+UC_ManualIssue ..> UC_TechnicalAccessChange : <<include>>
+UC_RenewAccess ..> UC_TechnicalAccessChange : <<include>>
+UC_RevokeAccess ..> UC_TechnicalAccessChange : <<include>>
+UC_DeactivateExpired ..> UC_TechnicalAccessChange : <<include>>
+UC_DeactivateExpired ..> UC_SyncState : <<include>>
+UC_ProcessPaymentEvent ..> UC_ActivateByBasis : <<include>>
+
+@enduml
