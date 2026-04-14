@@ -9,14 +9,13 @@ from shared.config.config import BOT_REFERRAL_LINK, FRONTEND_LINK
 from shared.constants.linking import LINK_TELEGRAM_PURPOSE, LINK_WEB_PURPOSE
 from shared.config.database.engine import async_session_factory
 from shared.infrastructure.identity_link_service import IdentityLinkService
-from shared.models.payments.payment_order_model import PaymentOrder
-from shared.models.subscriptions.subscription_state_model import SubscriptionState
 from shared.models.users.app_user_model import AppUser
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.users.user_profile_model import UserProfile
 from shared.models.users.web_account_model import WebAccount
 from shared.models.users.web_session_model import WebSession
-from shared.models.vpn.vpn_client_model import VpnClient
+from shared.services.linking.account_state import is_empty_web_shell
+
 
 @dataclass(frozen=True, slots=True)
 class TelegramLinkStartResult:
@@ -240,7 +239,7 @@ class LinkingService:
                     detail="Current web account not found",
                 )
 
-            if not await self._is_empty_web_shell(session, int(current_user_id)):
+            if not await is_empty_web_shell(session, int(current_user_id)):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="This web account already has data and cannot be auto-linked",
@@ -285,48 +284,3 @@ class LinkingService:
             status="linked",
             linked_user_id=int(token.user_id),
         )
-
-    async def _is_empty_web_shell(self, session, user_id: int) -> bool:
-        has_telegram = (
-            await session.execute(
-                select(TelegramAccount.id).where(
-                    and_(
-                        TelegramAccount.user_id == int(user_id),
-                        TelegramAccount.revoked_at.is_(None),
-                    )
-                )
-            )
-        ).scalar_one_or_none()
-        if has_telegram is not None:
-            return False
-
-        has_payments = (
-            await session.execute(
-                select(PaymentOrder.id).where(PaymentOrder.user_id == int(user_id)).limit(1)
-            )
-        ).scalar_one_or_none()
-        if has_payments is not None:
-            return False
-
-        has_vpn_clients = (
-            await session.execute(
-                select(VpnClient.id).where(
-                    VpnClient.user_id == int(user_id),
-                    VpnClient.deactivated_at.is_(None),
-                ).limit(1)
-            )
-        ).scalar_one_or_none()
-        if has_vpn_clients is not None:
-            return False
-
-        subscription_state = await session.get(SubscriptionState, int(user_id))
-        if subscription_state is not None and any(
-            [
-                subscription_state.current_expires_at is not None,
-                subscription_state.trial_activated_at is not None,
-                subscription_state.info_channel_activated_at is not None,
-            ]
-        ):
-            return False
-
-        return True
