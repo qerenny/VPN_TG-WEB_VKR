@@ -35,6 +35,7 @@ from shared.models.users.web_account_model import WebAccount
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.infrastructure.access.access_registry_repository import AccessRegistryRepository
 from shared.utils.access_template_labels import format_access_template_label
+from shared.utils.traffic_format import human_view_traffic_bytes
 from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.timestamp_utils import TimestampUtils
 
@@ -339,13 +340,13 @@ class AccountService:
                 if traffic_limited_state is not None
                 else None,
                 "traffic_remaining_bytes": traffic_limited_remaining if traffic_limited_state is not None else None,
-                "human_view_traffic_allocated": self._human_view_traffic_bytes(
+                "human_view_traffic_allocated": human_view_traffic_bytes(
                     getattr(traffic_limited_state, "allocated_bytes", None)
                 ),
-                "human_view_traffic_used": self._human_view_traffic_bytes(
+                "human_view_traffic_used": human_view_traffic_bytes(
                     getattr(traffic_limited_state, "used_bytes", None)
                 ),
-                "human_view_traffic_remaining": self._human_view_traffic_bytes(
+                "human_view_traffic_remaining": human_view_traffic_bytes(
                     getattr(traffic_limited_state, "remaining_bytes", None)
                 ),
             },
@@ -448,7 +449,7 @@ class AccountService:
                 "quota_bytes": int(plan.quota_bytes) if plan.quota_bytes is not None else None,
                 "price_amount": str(plan.price_amount),
                 "currency": str(plan.currency or ""),
-                "human_view_traffic_quota": self._human_view_traffic_bytes(plan.quota_bytes),
+                "human_view_traffic_quota": human_view_traffic_bytes(plan.quota_bytes),
             }
             if str(plan.scope) == PRODUCT_SCOPE_TRAFFIC_LIMITED:
                 if features.traffic_limited_config_enabled:
@@ -539,25 +540,6 @@ class AccountService:
             return None
         normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
         return int(normalized.astimezone(timezone.utc).timestamp() * 1000)
-
-    @staticmethod
-    def _human_view_traffic_bytes(value: int | None) -> str | None:
-        if value is None:
-            return None
-        bytes_value = int(value)
-        gib = 1024 * 1024 * 1024
-        mib = 1024 * 1024
-        kib = 1024
-        if bytes_value >= gib:
-            gb_value = bytes_value / gib
-            return f"{int(gb_value)} GB" if bytes_value % gib == 0 else f"{gb_value:.1f} GB"
-        if bytes_value >= mib:
-            mb_value = bytes_value / mib
-            return f"{int(mb_value)} MB" if bytes_value % mib == 0 else f"{mb_value:.1f} MB"
-        if bytes_value >= kib:
-            kb_value = bytes_value / kib
-            return f"{int(kb_value)} KB" if bytes_value % kib == 0 else f"{kb_value:.1f} KB"
-        return f"{bytes_value} B"
 
     @staticmethod
     def _runtime_order_status(order_status: str | None) -> str:

@@ -12,31 +12,31 @@ export interface WebMe extends UserProfileFields {
   last_login_at: string | null
 }
 
-export interface WebLoginPayload {
+interface WebLoginPayload {
   email: string
   password: string
   device_name?: string | null
 }
 
-export interface WebRegisterVerifyPayload {
+interface WebRegisterVerifyPayload {
   email: string
   code: string
   password: string
   device_name?: string | null
 }
 
-export interface WebPasswordResetPayload {
+interface WebPasswordResetPayload {
   email: string
   code: string
   new_password: string
 }
 
-export interface WebPublicLinkLoginPayload {
+interface WebPublicLinkLoginPayload {
   token: string
   device_name?: string | null
 }
 
-export interface WebRegistrationStartResult {
+interface WebRegistrationStartResult {
   status: string
   verification_required: boolean
 }

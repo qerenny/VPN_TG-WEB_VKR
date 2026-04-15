@@ -1,6 +1,6 @@
 import type { WebCatalogPlan } from '../api/account'
 
-export const ACCESS_TEMPLATE_LABELS: Record<string, string> = {
+const ACCESS_TEMPLATE_LABELS: Record<string, string> = {
   month_1: '🔑 1 месяц · Базовая',
   month_3: '🛡️ 3 месяца · Базовая',
   month_6: '⭐ 6 месяцев · Базовая',

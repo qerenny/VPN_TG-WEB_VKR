@@ -189,7 +189,7 @@ export async function createTrafficLimitedCheckout(planCode: string, method = 'e
   })
 }
 
-export interface WebPromoApplyResult {
+interface WebPromoApplyResult {
   status: string
   granted_days: number
   message: string

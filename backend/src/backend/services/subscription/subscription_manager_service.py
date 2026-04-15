@@ -18,6 +18,7 @@ from shared.models.traffic.traffic_state_model import TrafficState
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
+from shared.utils.traffic_format import human_view_traffic_bytes
 from shared.utils.jwt_encoder import JWTEncoder
 from shared.utils.timestamp_utils import TimestampUtils
 
@@ -144,9 +145,9 @@ class SubscriptionManagerService:
             "traffic_allocated_bytes": snapshot.allocated_bytes,
             "traffic_used_bytes": snapshot.used_bytes,
             "traffic_remaining_bytes": snapshot.remaining_bytes,
-            "human_view_traffic_allocated": self._human_view_traffic_bytes(snapshot.allocated_bytes),
-            "human_view_traffic_used": self._human_view_traffic_bytes(snapshot.used_bytes),
-            "human_view_traffic_remaining": self._human_view_traffic_bytes(snapshot.remaining_bytes),
+            "human_view_traffic_allocated": human_view_traffic_bytes(snapshot.allocated_bytes),
+            "human_view_traffic_used": human_view_traffic_bytes(snapshot.used_bytes),
+            "human_view_traffic_remaining": human_view_traffic_bytes(snapshot.remaining_bytes),
         }
 
     async def _get_traffic_limited_snapshot(
@@ -237,30 +238,3 @@ class SubscriptionManagerService:
             return None
         normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
         return int(normalized.astimezone(timezone.utc).timestamp() * 1000)
-
-    @staticmethod
-    def _human_view_traffic_bytes(value: int | None) -> str | None:
-        if value is None:
-            return None
-
-        bytes_value = int(value)
-        gib = 1024 * 1024 * 1024
-        mib = 1024 * 1024
-        kib = 1024
-
-        if bytes_value >= gib:
-            gb_value = bytes_value / gib
-            if bytes_value % gib == 0:
-                return f"{int(gb_value)} GB"
-            return f"{gb_value:.1f} GB"
-        if bytes_value >= mib:
-            mb_value = bytes_value / mib
-            if bytes_value % mib == 0:
-                return f"{int(mb_value)} MB"
-            return f"{mb_value:.1f} MB"
-        if bytes_value >= kib:
-            kb_value = bytes_value / kib
-            if bytes_value % kib == 0:
-                return f"{int(kb_value)} KB"
-            return f"{kb_value:.1f} KB"
-        return f"{bytes_value} B"

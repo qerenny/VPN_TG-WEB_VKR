@@ -6,7 +6,7 @@ export interface PublicLinkPreview {
   expires_at: string | null
 }
 
-export interface PublicLinkConsumeResult {
+interface PublicLinkConsumeResult {
   status: string
   linked_user_id: number | null
 }

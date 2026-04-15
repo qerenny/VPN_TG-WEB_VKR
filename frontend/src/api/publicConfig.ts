@@ -82,7 +82,7 @@ export interface FrontendPublicConfig {
   }
 }
 
-export const EMPTY_PUBLIC_CONFIG: FrontendPublicConfig = Object.freeze({
+const EMPTY_PUBLIC_CONFIG: FrontendPublicConfig = Object.freeze({
   product: DEFAULT_PRODUCT_CONFIG,
   features: DEFAULT_FEATURE_FLAGS,
   support_link: undefined,
