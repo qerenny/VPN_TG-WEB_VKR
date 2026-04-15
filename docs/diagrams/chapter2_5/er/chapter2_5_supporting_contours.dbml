@@ -1,0 +1,123 @@
+Project "chapter2_5_supporting_contours" {
+  database_type: "PostgreSQL"
+  Note: '''
+  Дополнительная ER-диаграмма вспомогательных контуров.
+  Показывает основания предоставления временных прав и связанные записи истории без перегрузки основной схемы.
+  '''
+}
+
+TableGroup "Bridge entities" {
+  users
+  plans
+  subscription_grants
+}
+
+TableGroup "Payments and promotions" {
+  payment_orders
+  promo_codes
+  promo_redemptions
+}
+
+TableGroup "Referral and audit" {
+  referral_rewards
+  admin_audit_log
+}
+
+Table users {
+  id bigint [pk]
+  blocked_at timestamptz
+  deleted_at timestamptz
+}
+
+Table plans {
+  id bigint [pk]
+  code text [not null, unique]
+  scope text [not null]
+  entitlement_kind text [not null]
+  duration_days int [not null]
+  quota_bytes bigint
+  is_active boolean [not null]
+}
+
+Table subscription_grants {
+  id bigint [pk]
+  user_id bigint [not null]
+  plan_id bigint
+  source_type text [not null]
+  source_ref text
+  status text [not null]
+  duration_days int [not null]
+  expires_after timestamptz
+  applied_at timestamptz
+}
+
+Table payment_orders {
+  id bigint [pk]
+  user_id bigint [not null]
+  plan_id bigint [not null]
+  status text [not null]
+  amount numeric(12,2) [not null]
+  currency varchar(3) [not null]
+  paid_at timestamptz
+  fulfilled_at timestamptz
+  subscription_grant_id bigint [unique]
+}
+
+Table promo_codes {
+  id bigint [pk]
+  code text [not null, unique]
+  plan_id bigint
+  duration_days_override int
+  max_redemptions int
+  per_user_limit int [not null]
+  valid_from timestamptz
+  valid_until timestamptz
+  is_active boolean [not null]
+}
+
+Table promo_redemptions {
+  id bigint [pk]
+  promo_code_id bigint [not null]
+  user_id bigint [not null]
+  redeemed_at timestamptz [not null]
+  subscription_grant_id bigint [unique]
+}
+
+Table referral_rewards {
+  id bigint [pk]
+  beneficiary_user_id bigint [not null]
+  trigger_type text [not null]
+  trigger_ref text [not null]
+  reward_days int [not null]
+  applied_at timestamptz
+  canceled_at timestamptz
+  subscription_grant_id bigint [unique]
+}
+
+Table admin_audit_log {
+  id bigint [pk]
+  actor text [not null]
+  actor_role text [not null]
+  action_type text [not null]
+  target_tg_id bigint
+  status text [not null]
+  reason text
+  created_at timestamptz [not null]
+
+  Note: 'Жёсткой FK-связи с пользователем в модели нет; журнал включён как самостоятельный контур фиксации действий.'
+}
+
+Ref: subscription_grants.user_id > users.id
+Ref: subscription_grants.plan_id > plans.id
+
+Ref: payment_orders.user_id > users.id
+Ref: payment_orders.plan_id > plans.id
+Ref: payment_orders.subscription_grant_id - subscription_grants.id
+
+Ref: promo_codes.plan_id > plans.id
+Ref: promo_redemptions.promo_code_id > promo_codes.id
+Ref: promo_redemptions.user_id > users.id
+Ref: promo_redemptions.subscription_grant_id - subscription_grants.id
+
+Ref: referral_rewards.beneficiary_user_id > users.id
+Ref: referral_rewards.subscription_grant_id - subscription_grants.id

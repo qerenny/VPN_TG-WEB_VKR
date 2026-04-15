@@ -1,0 +1,356 @@
+Project "chapter2_5_domain_model_overview" {
+  database_type: "PostgreSQL"
+  Note: '''
+  Обзорная ER-диаграмма доменной модели автоматизированного сервиса защищённого удалённого доступа.
+  Схема отражает центральные сущности и подтверждённые связи проекта без перегрузки вторичными объектами реализации.
+  '''
+}
+
+TableGroup "Identity and user" {
+  users
+  telegram_accounts
+  web_accounts
+  identity_link_tokens
+}
+
+TableGroup "Access governance" {
+  access_registry_entries
+  access_requests
+  access_grants
+}
+
+TableGroup "Entitlements" {
+  plans
+  subscription_state
+  subscription_grants
+  vpn_clients
+  traffic_state
+  traffic_grants
+}
+
+TableGroup "VPN topology" {
+  vpn_locations
+  vpn_control_planes
+  vpn_access_points
+  vpn_client_deployments
+}
+
+TableGroup "Supporting history" {
+  payment_orders
+  promo_codes
+  promo_redemptions
+  referral_rewards
+  admin_audit_log
+}
+
+Table users {
+  id bigint [pk]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  blocked_at timestamptz
+  deleted_at timestamptz
+}
+
+Table telegram_accounts {
+  id bigint [pk]
+  user_id bigint [not null, unique]
+  telegram_id bigint [not null, unique]
+  username text
+  linked_at timestamptz [not null]
+  revoked_at timestamptz
+}
+
+Table web_accounts {
+  id bigint [pk]
+  user_id bigint [not null, unique]
+  email text [not null, unique]
+  email_verified_at timestamptz
+  linked_at timestamptz [not null]
+  revoked_at timestamptz
+}
+
+Table identity_link_tokens {
+  id bigint [pk]
+  user_id bigint [not null]
+  purpose text [not null]
+  token_hash text [not null, unique]
+  issued_by_channel text [not null]
+  expires_at timestamptz [not null]
+  used_at timestamptz
+  created_at timestamptz [not null]
+}
+
+Table access_registry_entries {
+  id bigint [pk]
+  identity_type text [not null]
+  identity_value text [not null]
+  template_code text [not null]
+  priority int [not null]
+  auto_approve boolean [not null]
+  allow_auto_renew boolean [not null]
+  is_active boolean [not null]
+  valid_from timestamptz
+  valid_until timestamptz
+
+  Note: 'Основание допуска задаётся по типу и значению идентичности; прямой FK к users не используется.'
+}
+
+Table access_requests {
+  id bigint [pk]
+  user_id bigint [not null]
+  requested_template_code text
+  access_grant_id bigint
+  channel text [not null]
+  request_kind text [not null]
+  status text [not null]
+  requested_at timestamptz [not null]
+  reviewed_at timestamptz
+  expires_at timestamptz
+}
+
+Table access_grants {
+  id bigint [pk]
+  user_id bigint [not null]
+  granted_by_user_id bigint
+  plan_id bigint
+  template_code text [not null]
+  scope text [not null]
+  entitlement_kind text [not null]
+  source_type text [not null]
+  source_ref text
+  status text [not null]
+  expires_at timestamptz
+  quota_bytes bigint
+  created_at timestamptz [not null]
+  activated_at timestamptz
+  revoked_at timestamptz
+}
+
+Table plans {
+  id bigint [pk]
+  code text [not null, unique]
+  name text [not null]
+  kind text [not null]
+  payload text [not null]
+  scope text [not null]
+  entitlement_kind text [not null]
+  duration_days int [not null]
+  quota_bytes bigint
+  price_amount numeric(12,2)
+  currency varchar(3)
+  is_active boolean [not null]
+}
+
+Table subscription_state {
+  user_id bigint [pk]
+  current_expires_at timestamptz
+  trial_activated_at timestamptz
+  info_channel_activated_at timestamptz
+  blocked_at timestamptz
+  updated_at timestamptz [not null]
+  version int [not null]
+}
+
+Table subscription_grants {
+  id bigint [pk]
+  user_id bigint [not null]
+  plan_id bigint
+  source_type text [not null]
+  source_ref text
+  status text [not null]
+  duration_days int [not null]
+  expires_before timestamptz
+  expires_after timestamptz
+  created_at timestamptz [not null]
+  applied_at timestamptz
+}
+
+Table vpn_clients {
+  id bigint [pk]
+  user_id bigint [not null]
+  scope text [not null]
+  provider text [not null]
+  external_client_uuid text [not null, unique]
+  external_email text [not null, unique]
+  subscription_external_id text [not null, unique]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  deactivated_at timestamptz
+}
+
+Table traffic_state {
+  vpn_client_id bigint [pk]
+  scope text [not null]
+  allocated_bytes bigint [not null]
+  used_bytes bigint [not null]
+  remaining_bytes bigint [not null]
+  expires_at timestamptz
+  is_blocked boolean [not null]
+  block_reason text
+  last_provider_sync_at timestamptz
+  updated_at timestamptz [not null]
+}
+
+Table traffic_grants {
+  id bigint [pk]
+  user_id bigint [not null]
+  vpn_client_id bigint [not null]
+  plan_id bigint
+  scope text [not null]
+  source_type text [not null]
+  source_ref text
+  status text [not null]
+  granted_bytes bigint [not null]
+  expires_at timestamptz
+  is_trial boolean [not null]
+  created_at timestamptz [not null]
+  applied_at timestamptz
+}
+
+Table vpn_locations {
+  id bigint [pk]
+  code text [not null, unique]
+  label text [not null]
+  is_active boolean [not null]
+  sort_order int [not null]
+}
+
+Table vpn_control_planes {
+  id bigint [pk]
+  code text [not null, unique]
+  scope text [not null]
+  server_name text [not null]
+  provider text [not null]
+  api_base_url text [not null]
+  subscription_base_url text
+  is_enabled boolean [not null]
+  accepts_new_deployments boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table vpn_access_points {
+  id bigint [pk]
+  control_plane_id bigint [not null]
+  location_id bigint
+  code text [not null, unique]
+  scope text [not null]
+  kind text [not null]
+  external_id text
+  is_enabled boolean [not null]
+  priority int [not null]
+  capacity_limit int
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table vpn_client_deployments {
+  id bigint [pk]
+  vpn_client_id bigint [not null]
+  access_point_id bigint [not null]
+  external_client_id text
+  external_remark text
+  status text [not null]
+  last_synced_at timestamptz
+  last_error text
+  removed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table payment_orders {
+  id bigint [pk]
+  user_id bigint [not null]
+  plan_id bigint [not null]
+  status text [not null]
+  amount numeric(12,2) [not null]
+  currency varchar(3) [not null]
+  created_at timestamptz [not null]
+  paid_at timestamptz
+  fulfilled_at timestamptz
+  subscription_grant_id bigint [unique]
+}
+
+Table promo_codes {
+  id bigint [pk]
+  code text [not null, unique]
+  plan_id bigint
+  duration_days_override int
+  max_redemptions int
+  per_user_limit int [not null]
+  valid_from timestamptz
+  valid_until timestamptz
+  is_active boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table promo_redemptions {
+  id bigint [pk]
+  promo_code_id bigint [not null]
+  user_id bigint [not null]
+  redeemed_at timestamptz [not null]
+  subscription_grant_id bigint [unique]
+}
+
+Table referral_rewards {
+  id bigint [pk]
+  beneficiary_user_id bigint [not null]
+  trigger_type text [not null]
+  trigger_ref text [not null]
+  reward_days int [not null]
+  created_at timestamptz [not null]
+  applied_at timestamptz
+  canceled_at timestamptz
+  subscription_grant_id bigint [unique]
+}
+
+Table admin_audit_log {
+  id bigint [pk]
+  actor text [not null]
+  actor_role text [not null]
+  action_type text [not null]
+  target_tg_id bigint
+  status text [not null]
+  reason text
+  summary text
+  created_at timestamptz [not null]
+
+  Note: 'Журнал фиксирует административные действия, но не связан с пользователем через жёсткий FK.'
+}
+
+Ref: telegram_accounts.user_id - users.id
+Ref: web_accounts.user_id - users.id
+Ref: identity_link_tokens.user_id > users.id
+
+Ref: access_requests.user_id > users.id
+Ref: access_requests.access_grant_id > access_grants.id
+Ref: access_grants.user_id > users.id
+Ref: access_grants.granted_by_user_id > users.id
+Ref: access_grants.plan_id > plans.id
+
+Ref: subscription_state.user_id - users.id
+Ref: subscription_grants.user_id > users.id
+Ref: subscription_grants.plan_id > plans.id
+
+Ref: vpn_clients.user_id > users.id
+Ref: traffic_state.vpn_client_id - vpn_clients.id
+Ref: traffic_grants.user_id > users.id
+Ref: traffic_grants.vpn_client_id > vpn_clients.id
+Ref: traffic_grants.plan_id > plans.id
+
+Ref: vpn_access_points.control_plane_id > vpn_control_planes.id
+Ref: vpn_access_points.location_id > vpn_locations.id
+Ref: vpn_client_deployments.vpn_client_id > vpn_clients.id
+Ref: vpn_client_deployments.access_point_id > vpn_access_points.id
+
+Ref: payment_orders.user_id > users.id
+Ref: payment_orders.plan_id > plans.id
+Ref: payment_orders.subscription_grant_id - subscription_grants.id
+
+Ref: promo_codes.plan_id > plans.id
+Ref: promo_redemptions.promo_code_id > promo_codes.id
+Ref: promo_redemptions.user_id > users.id
+Ref: promo_redemptions.subscription_grant_id - subscription_grants.id
+
+Ref: referral_rewards.beneficiary_user_id > users.id
+Ref: referral_rewards.subscription_grant_id - subscription_grants.id
