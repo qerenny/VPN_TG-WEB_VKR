@@ -1,0 +1,76 @@
+@startuml chapter2_3_component_angled
+left to right direction
+skinparam componentStyle uml2
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 70
+skinparam ranksep 60
+
+package "Автоматизированный сервис\nзащищённого удалённого доступа" as Service {
+  component "Frontend\n(web-кабинет,\nadmin-панель)" as Frontend <<component>>
+  component "Backend\n(HTTP API)" as Backend <<component>>
+  component "Telegram-бот\n(пользовательский канал\nи фоновые процессы)" as Bot <<component>>
+  component "Shared\n(общий доменный\nи инфраструктурный слой)" as Shared <<library>>
+  component "Alembic\n(миграции схемы БД)" as Alembic <<component>>
+
+  Shared -[hidden]down- Frontend
+  Frontend -[hidden]down- Backend
+  Backend -[hidden]down- Bot
+  Bot -[hidden]down- Alembic
+}
+
+package "Инфраструктурные зависимости" as InfraDeps {
+  database "PostgreSQL\n(доменное состояние)" as PostgreSQL <<database>>
+  database "Redis\n(кэш и очереди)" as Redis <<database>>
+
+  PostgreSQL -[hidden]down- Redis
+}
+
+package "Внешние системы" as External {
+  component "Платёжный шлюз" as PaymentGateway <<external system>>
+  component "Telegram Bot API" as TelegramAPI <<external system>>
+  component "3x-ui API\n(node-level control-plane)" as XUI <<external system>>
+  component "Узел доступа\n(Xray / data-plane)" as DataPlane <<external system>>
+
+  PaymentGateway -[hidden]down- TelegramAPI
+  TelegramAPI -[hidden]down- XUI
+  XUI -[hidden]down- DataPlane
+}
+
+package "Инфраструктурный контур" as Infra {
+  component "Ansible-роли\n(server_baseline,\ncertbot_setup,\nxui_app,\nnginx_proxy,\nbot_server)" as Ansible <<infrastructure>>
+}
+
+Frontend -down-> Backend : HTTP API
+
+Backend ..> Shared
+Bot ..> Shared
+Alembic ..> Shared
+
+Backend -right-> XUI
+Bot -right-> XUI
+Bot -right-> TelegramAPI : сообщения
+PaymentGateway -left-> Backend : webhook
+
+Backend -right-> PostgreSQL
+Bot -right-> PostgreSQL
+Alembic -right-> PostgreSQL
+
+Backend -right-> Redis
+Bot -right-> Redis
+
+Ansible ..up.> Service : подготовка хоста
+Ansible ..right.> XUI : настройка 3x-ui
+Ansible ..right.> DataPlane : подготовка узла
+
+XUI -down-> DataPlane
+
+legend bottom
+  Backend и Telegram-бот используют PostgreSQL для доменного состояния и Redis
+  для кэша, очередей и фоновой обработки. Alembic применяет миграции к PostgreSQL.
+  Shared не является сетевым сервисом; пользовательский трафик не проходит через
+  backend, frontend или Telegram-бот.
+endlegend
+
+@enduml

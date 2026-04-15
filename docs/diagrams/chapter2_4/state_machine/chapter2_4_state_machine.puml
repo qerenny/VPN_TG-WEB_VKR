@@ -1,0 +1,71 @@
+@startuml chapter2_4_state_machine
+hide empty description
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 70
+skinparam ranksep 55
+top to bottom direction
+skinparam state {
+  BackgroundColor White
+  BorderColor Black
+  FontColor Black
+}
+
+title Жизненный цикл управляемого доступа пользователя
+
+state "Ожидает решения\nили основания" as Pending
+state "Решение о выдаче\nпринято" as Approved
+state "Заявка\nотклонена" as Rejected
+state "Заявка\nпросрочена" as RequestExpired
+state "Технически\nсоздан" as Configured
+state "Доступ\nактивен" as Active
+state "Истекает срок\nили лимит" as Expiring
+state "Доступ\nистёк" as AccessExpired
+state "Доступ\nотозван" as Revoked
+state EndRejected <<end>>
+state EndRequestExpired <<end>>
+state EndAccessExpired <<end>>
+state EndRevoked <<end>>
+
+[*] -down-> Pending : инициация
+
+Pending -down-> Approved : одобрение [основание]
+Pending -left-> Rejected : отказ
+Pending -right-> RequestExpired : timeout
+
+Approved -down-> Configured : создание
+Configured -down-> Active : применение
+
+Active -down-> Expiring : when(истекает)
+Expiring -up-> Active : продление
+
+Active -right-> AccessExpired : when(истёк)
+Expiring -down-> AccessExpired : after(Tдоступа)
+
+Active -left-> Revoked : отзыв
+Expiring -left-> Revoked : отзыв
+
+Rejected -down-> EndRejected
+RequestExpired -down-> EndRequestExpired
+AccessExpired -down-> EndAccessExpired
+Revoked -down-> EndRevoked
+
+legend bottom
+  "Ожидает решения или основания" отражает пользовательскую заявку, запись реестра
+  или иное подтверждённое основание выдачи доступа.
+  "Решение о выдаче принято" не равно техническому созданию доступа на узле.
+  Переход "инициация" означает создание заявки или появление иного основания.
+  Guard [основание] означает подтверждённое основание выдачи доступа.
+  Timeout означает истечение срока ожидания решения по заявке.
+  Tдоступа — срок действия доступа.
+  "Истекает срок или лимит" используется как проектный маркер, а не как
+  обязательное значение поля базы данных.
+  Переход к состоянию "Доступ истёк" возможен как после стадии приближения
+  окончания, так и напрямую при наступлении условия прекращения.
+  Несколько конечных состояний используются для альтернативных завершений
+  жизненного цикла и не нарушают нотацию UML State Machine.
+  Сверка с 3x-ui API и уведомления уточняют состояние, но не образуют
+  самостоятельных состояний базовой диаграммы.
+endlegend
+
+@enduml
