@@ -1,0 +1,64 @@
+@startuml chapter2_3_sequence_access_request
+autonumber
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam ParticipantPadding 24
+skinparam BoxPadding 10
+
+actor "Пользователь" as User
+actor "Администратор" as Admin
+
+box "Автоматизированный сервис защищённого удалённого доступа"
+  participant "Telegram-бот\n(компонент сервиса)" as Bot
+  database "PostgreSQL\n(доменное состояние)" as DB
+  participant "Frontend\n(admin web-панель)" as Frontend
+  participant "Backend\n(HTTP API)" as Backend
+end box
+
+box "Внешние системы"
+  participant "3x-ui API\n(node-level control-plane)" as XUI
+  participant "Telegram Bot API\n(внешняя платформа)" as TelegramAPI
+end box
+
+User -> Bot : Подаёт заявку на доступ
+Bot -> DB : Сохраняет заявку через общий\nдоменный слой
+DB --> Bot : Заявка зафиксирована\nсо статусом ожидания
+Bot -> TelegramAPI : Отправляет подтверждение\nсоздания заявки
+TelegramAPI --> User : Доставляет уведомление
+
+Admin -> Frontend : Открывает список заявок\nи выбирает решение
+Frontend -> Backend : Передаёт решение администратора
+Backend -> DB : Фиксирует решение по заявке\nи основание выдачи
+DB --> Backend : Решение сохранено
+
+Backend -> DB : Создаёт запись о выданном доступе\nи параметрах конфигурации
+DB --> Backend : Доменное состояние сохранено
+Backend -> XUI : Создаёт или обновляет клиента\nна узле доступа
+XUI --> Backend : Техническое изменение применено
+Backend -> DB : Сохраняет результат применения\nи связь с узлом доступа
+DB --> Backend : Результат сохранён
+
+Bot -> DB : Получает актуальный статус заявки\nи данные доступа
+DB --> Bot : Возвращает результат рассмотрения\nи способ получения конфигурации
+Bot -> TelegramAPI : Отправляет уведомление\nо результате заявки
+TelegramAPI --> User : Доставляет пользователю\nрезультат рассмотрения
+
+note over Bot, TelegramAPI
+  Telegram-бот — компонент разрабатываемого сервиса.
+  Telegram Bot API — внешняя платформа, через которую
+  доставляются сообщения пользователю.
+end note
+
+note over Backend, XUI
+  Backend фиксирует доменное решение о выдаче доступа,
+  а 3x-ui API применяет технические изменения на узле.
+end note
+
+note over Bot, Backend
+  Диаграмма показывает взаимодействие подсистем
+  при одном ключевом сценарии, а не состояния
+  жизненного цикла доступа.
+end note
+
+@enduml

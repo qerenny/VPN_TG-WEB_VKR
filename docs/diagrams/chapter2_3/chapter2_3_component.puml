@@ -1,0 +1,68 @@
+@startuml chapter2_3_component
+left to right direction
+skinparam componentStyle uml2
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "Автоматизированный сервис\nзащищённого удалённого доступа" as Service {
+  component "Frontend\n(web-кабинет,\nadmin-панель)" as Frontend <<component>>
+  component "Backend\n(HTTP API)" as Backend <<component>>
+  component "Telegram-бот\n(пользовательский канал\nи фоновые процессы)" as Bot <<component>>
+  component "Shared\n(общий доменный\nи инфраструктурный слой)" as Shared <<library>>
+  component "Alembic\n(миграции схемы БД)" as Alembic <<component>>
+}
+
+package "Инфраструктурный контур" as Infra {
+  component "Ansible-роли\n(server_baseline,\ncertbot_setup,\nxui_app,\nnginx_proxy,\nbot_server)" as Ansible <<infrastructure>>
+}
+
+package "Инфраструктурные зависимости" as InfraDeps {
+  database "PostgreSQL\n(доменное состояние)" as PostgreSQL <<database>>
+  database "Redis\n(кэш и очереди)" as Redis <<database>>
+}
+
+package "Внешние системы" as External {
+  component "3x-ui API\n(node-level control-plane)" as XUI <<external system>>
+  component "Telegram Bot API" as TelegramAPI <<external system>>
+  component "Платёжный шлюз" as PaymentGateway <<external system>>
+  component "Узел доступа\n(Xray / data-plane)" as DataPlane <<external system>>
+}
+
+Frontend --> Backend : HTTP API
+
+Backend ..> Shared : использует
+Bot ..> Shared : использует
+Alembic ..> Shared : использует модели
+
+Backend --> PostgreSQL : чтение/запись\nдоменного состояния
+Bot --> PostgreSQL : чтение/запись\nдоменного состояния
+Alembic --> PostgreSQL : миграции схемы
+
+Backend --> Redis : кэш,\nочереди webhook-событий
+Bot --> Redis : очереди напоминаний\nи фоновой обработки
+
+Backend --> XUI : HTTP API,\nтехническая выдача доступа
+Bot --> XUI : HTTP API,\nтехническая выдача\nи синхронизация
+
+Bot --> TelegramAPI : polling,\nотправка уведомлений
+PaymentGateway --> Backend : webhook оплаты
+
+Ansible ..> XUI : установка и настройка\n3x-ui
+Ansible ..> DataPlane : подготовка узла\nдоступа
+Ansible ..> Service : подготовка хоста\nприложения
+
+XUI --> DataPlane : применение\nконфигурации узла
+
+note right of Shared
+  Shared не является сетевым сервисом.
+  Это общий кодовый слой для моделей,
+  репозиториев, конфигурации и миграций.
+end note
+
+note bottom of DataPlane
+  Data-plane не входит в прикладной сервис:
+  пользовательский трафик не проходит через
+  backend, frontend или Telegram-бот.
+end note
+
+@enduml
