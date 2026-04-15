@@ -1,0 +1,121 @@
+digraph chapter2_5_supporting_contours {
+  graph [
+    rankdir=TB,
+    splines=ortho,
+    nodesep=0.4,
+    ranksep=0.6,
+    pad=0.2,
+    bgcolor="white",
+    fontname="Times New Roman",
+    fontsize=14
+  ];
+
+  node [shape=plain, fontname="Times New Roman"];
+  edge [arrowhead=none, color="#444444", penwidth=1.2];
+
+  users [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#d9e8fb"><B>users</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">blocked_at</TD></TR>
+      <TR><TD ALIGN="LEFT">deleted_at</TD></TR>
+    </TABLE>
+  >];
+
+  plans [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>plans</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">scope</TD></TR>
+      <TR><TD ALIGN="LEFT">entitlement_kind</TD></TR>
+      <TR><TD ALIGN="LEFT">duration_days</TD></TR>
+      <TR><TD ALIGN="LEFT">quota_bytes</TD></TR>
+    </TABLE>
+  >];
+
+  subscription_grants [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>subscription_grants</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">plan_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">source_type</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+      <TR><TD ALIGN="LEFT">duration_days</TD></TR>
+    </TABLE>
+  >];
+
+  payment_orders [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>payment_orders</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">plan_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+      <TR><TD ALIGN="LEFT">subscription_grant_id (FK)</TD></TR>
+    </TABLE>
+  >];
+
+  promo_codes [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>promo_codes</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">plan_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">duration_days_override</TD></TR>
+      <TR><TD ALIGN="LEFT">valid_until</TD></TR>
+    </TABLE>
+  >];
+
+  promo_redemptions [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>promo_redemptions</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">promo_code_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">subscription_grant_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">redeemed_at</TD></TR>
+    </TABLE>
+  >];
+
+  referral_rewards [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>referral_rewards</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">beneficiary_user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">trigger_type</TD></TR>
+      <TR><TD ALIGN="LEFT">reward_days</TD></TR>
+      <TR><TD ALIGN="LEFT">subscription_grant_id (FK)</TD></TR>
+    </TABLE>
+  >];
+
+  admin_audit_log [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#f2f2f2"><B>admin_audit_log</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">actor</TD></TR>
+      <TR><TD ALIGN="LEFT">actor_role</TD></TR>
+      <TR><TD ALIGN="LEFT">action_type</TD></TR>
+      <TR><TD ALIGN="LEFT">target_tg_id</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+    </TABLE>
+  >];
+
+  { rank=same; users; plans; subscription_grants; }
+  { rank=same; payment_orders; promo_codes; promo_redemptions; referral_rewards; }
+  { rank=same; admin_audit_log; }
+
+  subscription_grants -> users;
+  subscription_grants -> plans;
+
+  payment_orders -> users;
+  payment_orders -> plans;
+  payment_orders -> subscription_grants;
+
+  promo_codes -> plans;
+  promo_redemptions -> promo_codes;
+  promo_redemptions -> users;
+  promo_redemptions -> subscription_grants;
+
+  referral_rewards -> users;
+  referral_rewards -> subscription_grants;
+}

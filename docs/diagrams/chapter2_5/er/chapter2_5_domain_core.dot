@@ -1,0 +1,225 @@
+digraph chapter2_5_domain_core {
+  graph [
+    rankdir=TB,
+    splines=ortho,
+    nodesep=0.35,
+    ranksep=0.55,
+    pad=0.2,
+    bgcolor="white",
+    fontname="Times New Roman",
+    fontsize=14
+  ];
+
+  node [shape=plain, fontname="Times New Roman"];
+  edge [arrowhead=none, color="#444444", penwidth=1.2];
+
+  users [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#d9e8fb"><B>users</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">blocked_at</TD></TR>
+      <TR><TD ALIGN="LEFT">deleted_at</TD></TR>
+    </TABLE>
+  >];
+
+  telegram_accounts [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e8f1fc"><B>telegram_accounts</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">telegram_id</TD></TR>
+      <TR><TD ALIGN="LEFT">revoked_at</TD></TR>
+    </TABLE>
+  >];
+
+  web_accounts [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e8f1fc"><B>web_accounts</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">email</TD></TR>
+      <TR><TD ALIGN="LEFT">revoked_at</TD></TR>
+    </TABLE>
+  >];
+
+  identity_link_tokens [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e8f1fc"><B>identity_link_tokens</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">purpose</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_at</TD></TR>
+    </TABLE>
+  >];
+
+  access_requests [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>access_requests</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">access_grant_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">request_kind</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+    </TABLE>
+  >];
+
+  access_registry_entries [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>access_registry_entries</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">identity_type</TD></TR>
+      <TR><TD ALIGN="LEFT">identity_value</TD></TR>
+      <TR><TD ALIGN="LEFT">template_code</TD></TR>
+      <TR><TD ALIGN="LEFT">auto_approve</TD></TR>
+    </TABLE>
+  >];
+
+  access_grants [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#fde8d7"><B>access_grants</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">plan_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">entitlement_kind</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_at</TD></TR>
+    </TABLE>
+  >];
+
+  plans [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>plans</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">scope</TD></TR>
+      <TR><TD ALIGN="LEFT">entitlement_kind</TD></TR>
+      <TR><TD ALIGN="LEFT">duration_days</TD></TR>
+      <TR><TD ALIGN="LEFT">quota_bytes</TD></TR>
+    </TABLE>
+  >];
+
+  subscription_state [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>subscription_state</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>user_id</U> (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">current_expires_at</TD></TR>
+      <TR><TD ALIGN="LEFT">blocked_at</TD></TR>
+      <TR><TD ALIGN="LEFT">version</TD></TR>
+    </TABLE>
+  >];
+
+  subscription_grants [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>subscription_grants</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">plan_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">source_type</TD></TR>
+      <TR><TD ALIGN="LEFT">duration_days</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_after</TD></TR>
+    </TABLE>
+  >];
+
+  vpn_clients [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e7dff7"><B>vpn_clients</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">scope</TD></TR>
+      <TR><TD ALIGN="LEFT">provider</TD></TR>
+      <TR><TD ALIGN="LEFT">subscription_external_id</TD></TR>
+    </TABLE>
+  >];
+
+  traffic_state [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>traffic_state</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>vpn_client_id</U> (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">allocated_bytes</TD></TR>
+      <TR><TD ALIGN="LEFT">used_bytes</TD></TR>
+      <TR><TD ALIGN="LEFT">remaining_bytes</TD></TR>
+      <TR><TD ALIGN="LEFT">is_blocked</TD></TR>
+    </TABLE>
+  >];
+
+  traffic_grants [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#eef3d6"><B>traffic_grants</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">user_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">vpn_client_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">plan_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">granted_bytes</TD></TR>
+      <TR><TD ALIGN="LEFT">expires_at</TD></TR>
+    </TABLE>
+  >];
+
+  vpn_locations [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e7dff7"><B>vpn_locations</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">code</TD></TR>
+      <TR><TD ALIGN="LEFT">label</TD></TR>
+    </TABLE>
+  >];
+
+  vpn_control_planes [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e7dff7"><B>vpn_control_planes</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">scope</TD></TR>
+      <TR><TD ALIGN="LEFT">provider</TD></TR>
+      <TR><TD ALIGN="LEFT">is_enabled</TD></TR>
+    </TABLE>
+  >];
+
+  vpn_access_points [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e7dff7"><B>vpn_access_points</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">control_plane_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">location_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">scope</TD></TR>
+      <TR><TD ALIGN="LEFT">kind</TD></TR>
+    </TABLE>
+  >];
+
+  vpn_client_deployments [label=<
+    <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">
+      <TR><TD BGCOLOR="#e7dff7"><B>vpn_client_deployments</B></TD></TR>
+      <TR><TD ALIGN="LEFT"><U>id</U></TD></TR>
+      <TR><TD ALIGN="LEFT">vpn_client_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">access_point_id (FK)</TD></TR>
+      <TR><TD ALIGN="LEFT">status</TD></TR>
+      <TR><TD ALIGN="LEFT">removed_at</TD></TR>
+    </TABLE>
+  >];
+
+  { rank=same; telegram_accounts; users; web_accounts; identity_link_tokens; }
+  { rank=same; access_registry_entries; access_requests; access_grants; }
+  { rank=same; plans; subscription_state; subscription_grants; vpn_clients; }
+  { rank=same; vpn_locations; vpn_control_planes; vpn_access_points; vpn_client_deployments; traffic_state; traffic_grants; }
+
+  telegram_accounts -> users;
+  web_accounts -> users;
+  identity_link_tokens -> users;
+
+  access_requests -> users;
+  access_requests -> access_grants;
+  access_grants -> users;
+  access_grants -> plans;
+
+  subscription_state -> users;
+  subscription_grants -> users;
+  subscription_grants -> plans;
+
+  vpn_clients -> users;
+  traffic_state -> vpn_clients;
+  traffic_grants -> users;
+  traffic_grants -> vpn_clients;
+  traffic_grants -> plans;
+
+  vpn_access_points -> vpn_control_planes;
+  vpn_access_points -> vpn_locations;
+  vpn_client_deployments -> vpn_clients;
+  vpn_client_deployments -> vpn_access_points;
+}
