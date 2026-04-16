@@ -78,20 +78,6 @@ class AccessGrantRepository:
             )
             return list(rows.scalars().all())
 
-    async def list_user_grants(
-        self,
-        *,
-        user_id: int,
-        limit: int = 20,
-    ) -> list[AccessGrant]:
-        async with get_db_session() as session:
-            rows = await session.execute(
-                self._ordered_grants_stmt()
-                .where(AccessGrant.user_id == int(user_id))
-                .limit(clamp_limit(limit, maximum=200))
-            )
-            return list(rows.scalars().all())
-
     async def get_by_source(
         self,
         *,

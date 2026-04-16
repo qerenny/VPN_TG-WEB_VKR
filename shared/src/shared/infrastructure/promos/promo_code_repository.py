@@ -30,11 +30,6 @@ class PromoCodeRepository(BaseRepository[PromoCodeSnapshot]):
         async with self.get_session() as session:
             return await self._get_v2_promo_by_code(session, code)
 
-    @log_function_call(logger)
-    async def get_remaining(self, code: str) -> int | None:
-        promo = await self.get_by_code(code)
-        return promo.remaining_uses if promo else None
-
     async def _get_v2_promo_by_code(self, session, code: str) -> PromoCodeSnapshot | None:
         promo_v2 = (
             await session.execute(select(PromoCodeV2).where(PromoCodeV2.code == code))

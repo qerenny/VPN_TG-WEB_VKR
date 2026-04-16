@@ -78,20 +78,6 @@ class TrafficLimitedService:
             source_ref=str(source_ref),
         )
 
-    async def activate_payment_for_user(
-        self,
-        *,
-        user_id: int,
-        product: str,
-        payment_id: str,
-    ) -> TrafficLimitedActivationResult:
-        return await self.activate_source_for_user(
-            user_id=int(user_id),
-            product=str(product),
-            source_type="payment",
-            source_ref=str(payment_id),
-        )
-
     async def activate_source_for_user(
         self,
         *,
