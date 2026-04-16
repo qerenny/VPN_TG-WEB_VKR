@@ -2,6 +2,7 @@ const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
         Footer, AlignmentType, HeadingLevel, BorderStyle, WidthType,
         TableOfContents, PageNumber, SectionType } = require('docx');
 const fs = require('fs');
+const path = require('path');
 
 const mm = (v) => Math.round(v / 25.4 * 1440);
 const LEFT  = mm(30);
@@ -100,6 +101,8 @@ const pageFooter = new Footer({
 });
 
 const emptyFooter = new Footer({ children: [new Paragraph({ children: [] })] });
+const ROOT = path.resolve(__dirname, "..");
+const CHAPTER1_REVISED = path.join(ROOT, "docs", "revise_version", "chapter1_revision_20260416", "chapter1_revised.md");
 
 function pb(children, opts = {}) {
   const ch = typeof children === 'string' ? [run(children)] : children;
@@ -128,6 +131,123 @@ function ref(num, text) {
     indent: { firstLine: INDENT },
     alignment: AlignmentType.JUSTIFIED,
   });
+}
+
+function tableCaption(text) {
+  return new Paragraph({
+    children: [run(text)],
+    spacing: SP,
+    indent: { firstLine: 0 },
+    alignment: AlignmentType.LEFT,
+  });
+}
+
+function cellParagraph(text, isHeader) {
+  return new Paragraph({
+    children: [new TextRun({
+      text,
+      font: FONT,
+      size: isHeader ? 22 : SZ,
+      bold: isHeader,
+    })],
+    spacing: SP,
+    indent: { firstLine: 0 },
+    alignment: isHeader ? AlignmentType.CENTER : AlignmentType.LEFT,
+  });
+}
+
+function columnWidths(headers) {
+  const contentWidth = pageSize.width - LEFT - RIGHT;
+  const joined = headers.join("|");
+  if (joined.includes("Класс|Роль|Примеры|Ограничения для управления жизненным циклом доступа")) {
+    return [900, 1800, 1700, contentWidth - 900 - 1800 - 1700];
+  }
+  if (joined.includes("Решение|Покрытые стадии жизненного цикла|Пользовательский канал|Поддержка нескольких узлов|Audit trail|Воспроизводимое инфраструктурное развёртывание узлов|Лицензия")) {
+    return [800, 1700, 1500, 1100, 900, 1400, contentWidth - 800 - 1700 - 1500 - 1100 - 900 - 1400];
+  }
+  const base = Math.floor(contentWidth / headers.length);
+  return headers.map((_, index) =>
+    index === headers.length - 1 ? contentWidth - base * (headers.length - 1) : base,
+  );
+}
+
+function markdownTable(rows) {
+  const border = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
+  const widths = columnWidths(rows[0]);
+  return new Table({
+    width: { size: pageSize.width - LEFT - RIGHT, type: WidthType.DXA },
+    columnWidths: widths,
+    rows: rows.map((row, rowIndex) => new TableRow({
+      children: row.map((value, colIndex) => new TableCell({
+        borders: { top: border, bottom: border, left: border, right: border },
+        width: { size: widths[colIndex], type: WidthType.DXA },
+        margins: { top: 60, bottom: 60, left: 90, right: 90 },
+        children: [cellParagraph(value, rowIndex === 0)],
+      })),
+    })),
+  });
+}
+
+function parseTable(lines, startIndex) {
+  const rows = [];
+  let index = startIndex;
+  while (index < lines.length && lines[index].trim().startsWith("|")) {
+    const line = lines[index].trim();
+    const cells = line
+      .slice(1, line.endsWith("|") ? -1 : undefined)
+      .split("|")
+      .map((cell) => cell.trim());
+    const isSeparator = cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+    if (!isSeparator) {
+      rows.push(cells);
+    }
+    index += 1;
+  }
+  return { table: markdownTable(rows), nextIndex: index };
+}
+
+function parseChapterMarkdown(markdown) {
+  const children = [];
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("|")) {
+      const parsed = parseTable(lines, index);
+      children.push(parsed.table);
+      index = parsed.nextIndex;
+      continue;
+    }
+
+    if (/^\*\*Таблица .+\*\*$/.test(line)) {
+      children.push(tableCaption(line.replace(/^\*\*/, "").replace(/\*\*$/, "")));
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      children.push(h2(line.slice(3).trim()));
+      index += 1;
+      continue;
+    }
+
+    children.push(pb(line));
+    index += 1;
+  }
+
+  return children;
+}
+
+function chapter1Content() {
+  const markdown = fs.readFileSync(CHAPTER1_REVISED, "utf8");
+  const body = markdown.replace(/^# .*\n+/, "");
+  return parseChapterMarkdown(body);
 }
 
 function introContent() {
@@ -238,9 +358,7 @@ function buildDoc() {
       ...introContent(),
 
       h1("1 ОБОСНОВАНИЕ ТЕМЫ И АНАЛИЗ ПРЕДМЕТНОЙ ОБЛАСТИ"),
-      placeholder(todo),
-      h2("1.1 [Заголовок подраздела]"),
-      placeholder(todo),
+      ...chapter1Content(),
 
       h1("2 ПРОЕКТИРОВАНИЕ СИСТЕМЫ"),
       placeholder(todo),
