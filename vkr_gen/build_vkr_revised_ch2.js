@@ -21,7 +21,8 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const OUTPUT = path.join(ROOT, "docs", "revise_version", "vkr_revised.docx");
+const GENERATED_DIR = path.join(ROOT, "docs", "revise_version", "generated");
+const OUTPUT = path.join(GENERATED_DIR, "vkr_revised.with_ch2.generated.docx");
 const CH2_INPUT = path.join(ROOT, "docs", "revise_version", "chapter2_revision_20260416", "chapter2_revised.md");
 
 const mm = (value) => Math.round((value / 25.4) * 1440);
@@ -268,11 +269,7 @@ function introContent() {
     task("6", "реализовать чат-бота как основной пользовательский интерфейс выдачи и сопровождения доступа;"),
     task("7", "реализовать веб-кабинет пользователя и административную панель;"),
     task("8", "провести проверку работоспособности системы на типовых сценариях использования."),
-    paragraph([run("Объект исследования", { bold: true }), run(" — процессы организации защищённого удалённого доступа к сетевым ресурсам и управления жизненным циклом доступа.")]),
-    paragraph([run("Предмет исследования", { bold: true }), run(" — методы и программные средства автоматизации развёртывания, выдачи и управления доступом с использованием интерфейса чат-бота и веб-панели.")]),
-    paragraph([run("В работе применялись следующие методы", { bold: true }), run(": системный анализ предметной области и существующих программных решений; объектно-ориентированное проектирование при разработке модульной архитектуры; метод прецедентов при формировании требований к системе; экспериментальная проверка работоспособности на типовых сценариях использования.")]),
     paragraph([run("Практическая значимость", { bold: true }), run(" работы состоит в разработке программной системы, которая может использоваться как основа для самостоятельного развёртывания и адаптации сервиса защищённого удалённого доступа с управлением через чат-бот и веб-интерфейс. Полученный результат ориентирован на снижение доли ручных операций при выдаче и сопровождении доступа, а также на воспроизводимое развёртывание инфраструктурного контура.")]),
-    paragraph([run("Структура работы.", { bold: true }), run(" Выпускная квалификационная работа состоит из введения, трёх глав, заключения, списка использованных источников и приложений. В первой главе проведён анализ предметной области и существующих решений, сформированы требования к системе. Вторая глава посвящена проектированию архитектуры сервиса, выбору технологий и проектированию ключевых подсистем. В третьей главе описана реализация компонентов системы и результаты проверки работоспособности на типовых сценариях.")]),
   ];
 }
 
@@ -503,40 +500,8 @@ async function main() {
       {
         properties: {
           page: { size: { width: PAGE_WIDTH, height: PAGE_HEIGHT }, margin: { top: TOP, right: RIGHT, bottom: BOTTOM, left: LEFT } },
-          type: SectionType.NEXT_PAGE,
-        },
-        footers: { default: emptyFooter },
-        children: [
-          new Paragraph({
-            children: [run("ТИТУЛЬНЫЙ ЛИСТ", { bold: true, allCaps: true })],
-            alignment: AlignmentType.CENTER,
-            spacing: SPACING,
-            indent: { firstLine: 0 },
-          }),
-          paragraph("(загружается из ИСУ)"),
-          new Paragraph({
-            children: [run("ЗАДАНИЕ", { bold: true, allCaps: true })],
-            alignment: AlignmentType.CENTER,
-            spacing: SPACING,
-            indent: { firstLine: 0 },
-            pageBreakBefore: true,
-          }),
-          paragraph("(загружается из ИСУ)"),
-          new Paragraph({
-            children: [run("АННОТАЦИЯ", { bold: true, allCaps: true })],
-            alignment: AlignmentType.CENTER,
-            spacing: SPACING,
-            indent: { firstLine: 0 },
-            pageBreakBefore: true,
-          }),
-          paragraph("(загружается из ИСУ)"),
-        ],
-      },
-      {
-        properties: {
-          page: { size: { width: PAGE_WIDTH, height: PAGE_HEIGHT }, margin: { top: TOP, right: RIGHT, bottom: BOTTOM, left: LEFT } },
           pageNumberStart: 4,
-          type: SectionType.NEXT_PAGE,
+          type: SectionType.CONTINUOUS,
         },
         footers: { default: pageFooter },
         children: [
@@ -548,22 +513,6 @@ async function main() {
           }),
           new TableOfContents("", { hyperlink: true, headingStyleRange: "1-3" }),
 
-          structHead("СПИСОК СОКРАЩЕНИЙ И УСЛОВНЫХ ОБОЗНАЧЕНИЙ"),
-          new Paragraph({ children: [], spacing: SPACING }),
-          makeTable([
-            ["Сокращение", "Расшифровка"],
-            ["", ""],
-            ["", ""],
-          ], [Math.round(CONTENT_WIDTH * 0.35), CONTENT_WIDTH - Math.round(CONTENT_WIDTH * 0.35)]),
-
-          structHead("ТЕРМИНЫ И ОПРЕДЕЛЕНИЯ"),
-          new Paragraph({ children: [], spacing: SPACING }),
-          makeTable([
-            ["Термин", "Определение"],
-            ["", ""],
-            ["", ""],
-          ], [Math.round(CONTENT_WIDTH * 0.35), CONTENT_WIDTH - Math.round(CONTENT_WIDTH * 0.35)]),
-
           ...introContent(),
           ...chapter1Content(),
           ...parseChapter2(ch2),
@@ -574,8 +523,10 @@ async function main() {
     ],
   });
 
+  fs.mkdirSync(GENERATED_DIR, { recursive: true });
   fs.writeFileSync(OUTPUT, await Packer.toBuffer(doc));
-  console.log(`Created ${OUTPUT}`);
+  console.log(`Черновик создан: ${OUTPUT}`);
+  console.log("Рабочий docs/revise_version/vkr_revised.docx не перезаписывался.");
 }
 
 main().catch((error) => {
