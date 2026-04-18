@@ -16,6 +16,7 @@ from shared.models.vpn.vpn_client_model import VpnClient
 from shared.product_constants import ENTITLEMENT_KIND_TIME, PRODUCT_SCOPE_STANDARD
 from shared.utils.client_identity import build_vpn_client_email, resolve_user_identity_seed
 from shared.utils.logging_utils import logger
+from shared.utils.timestamp_utils import datetime_to_legacy_ms
 from telegram_bot.infrastructure.api.client_manager import ClientManager
 from telegram_bot.shared.utils.uuid_generator import UUIDGenerator
 
@@ -134,7 +135,7 @@ class StandardUserSubscriptionService:
                     client_uuid=client_uuid,
                     email=external_email,
                     sub_id=subscription_id,
-                    expires_at=self._datetime_to_legacy_ms(new_expires_at),
+                    expires_at=datetime_to_legacy_ms(new_expires_at),
                     total_bytes=0,
                 )
                 now = datetime.now(timezone.utc)
@@ -166,7 +167,7 @@ class StandardUserSubscriptionService:
                         client_uuid=client_uuid,
                         email=external_email,
                         sub_id=subscription_id,
-                        expires_at=self._datetime_to_legacy_ms(new_expires_at),
+                        expires_at=datetime_to_legacy_ms(new_expires_at),
                         total_bytes=0,
                     )
                 else:
@@ -181,7 +182,7 @@ class StandardUserSubscriptionService:
                         client_uuid=client_uuid,
                         email=external_email,
                         sub_id=subscription_id,
-                        expires_at=self._datetime_to_legacy_ms(new_expires_at),
+                        expires_at=datetime_to_legacy_ms(new_expires_at),
                         total_bytes=0,
                     )
                 vpn_client.updated_at = datetime.now(timezone.utc)
@@ -275,12 +276,7 @@ class StandardUserSubscriptionService:
                 client_uuid=str(vpn_client.external_client_uuid),
                 email=str(vpn_client.external_email),
                 sub_id=str(vpn_client.subscription_external_id),
-                expires_at=self._datetime_to_legacy_ms(now),
+                expires_at=datetime_to_legacy_ms(now),
                 total_bytes=0,
             )
         return True
-
-    @staticmethod
-    def _datetime_to_legacy_ms(value: datetime) -> int:
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return int(normalized.timestamp() * 1000)

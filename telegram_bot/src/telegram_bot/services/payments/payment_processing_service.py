@@ -14,11 +14,6 @@ class PaymentProcessingService:
         referrals_enabled: bool = True,
     ):
         self.access_issuance_service = access_issuance_service
-        self.subscription_manager = access_issuance_service.subscription_flow_service
-        self.traffic_limited_service = access_issuance_service.traffic_limited_service
-        self.standard_user_subscription_service = (
-            access_issuance_service.standard_user_subscription_service
-        )
         self.bonuses = bonuses
         self.referrals_enabled = referrals_enabled
 

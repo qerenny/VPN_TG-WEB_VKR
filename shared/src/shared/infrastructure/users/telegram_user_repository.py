@@ -14,6 +14,7 @@ from shared.models.users.telegram_account_model import TelegramAccount
 from shared.models.vpn.vpn_client_model import VpnClient
 from shared.product_constants import PRODUCT_SCOPE_STANDARD
 from shared.utils.logging_utils import log_function_call, setup_logger
+from shared.utils.timestamp_utils import datetime_to_legacy_ms, ensure_utc_datetime
 
 logger = setup_logger("telegram-user.repository", "database.log")
 
@@ -88,8 +89,8 @@ class TelegramUserRepository:
                 if telegram_username is not None:
                     account.username = telegram_username
                 account.revoked_at = None
-                first_seen_at = self._ensure_utc(account.first_seen_at)
-                last_seen_at = self._ensure_utc(account.last_seen_at)
+                first_seen_at = ensure_utc_datetime(account.first_seen_at)
+                last_seen_at = ensure_utc_datetime(account.last_seen_at)
                 if first_seen_at is None or seen_at < first_seen_at:
                     account.first_seen_at = seen_at
                 if last_seen_at is None or seen_at > last_seen_at:
@@ -192,8 +193,8 @@ class TelegramUserRepository:
             normalized_seen_at = self._legacy_ts_to_datetime(seen_at) or datetime.now(timezone.utc)
             if telegram_username is not None:
                 account.username = telegram_username
-            first_seen_at = self._ensure_utc(account.first_seen_at)
-            last_seen_at = self._ensure_utc(account.last_seen_at)
+            first_seen_at = ensure_utc_datetime(account.first_seen_at)
+            last_seen_at = ensure_utc_datetime(account.last_seen_at)
             if first_seen_at is None or normalized_seen_at < first_seen_at:
                 account.first_seen_at = normalized_seen_at
             if last_seen_at is None or normalized_seen_at > last_seen_at:
@@ -234,7 +235,7 @@ class TelegramUserRepository:
                 return False
 
             app_user = await session.get(AppUser, int(account))
-            return app_user is not None and self._ensure_utc(app_user.blocked_at) is not None
+            return app_user is not None and ensure_utc_datetime(app_user.blocked_at) is not None
 
     @log_function_call(logger)
     async def get_standard_vpn_client_id(self, tg_id: int) -> int | None:
@@ -445,12 +446,12 @@ class TelegramUserRepository:
 
     def _build_snapshot_from_row(self, row) -> TelegramUserSnapshot:
         snapshot = SubscriptionStateSnapshot(
-            current_expires_at_ms=self._datetime_to_legacy_ms(row.current_expires_at),
-            trial_activated_at_ms=self._datetime_to_legacy_ms(row.trial_activated_at),
-            info_channel_activated_at_ms=self._datetime_to_legacy_ms(row.info_channel_activated_at),
-            blocked_at=self._ensure_utc(row.blocked_at),
+            current_expires_at_ms=datetime_to_legacy_ms(row.current_expires_at),
+            trial_activated_at_ms=datetime_to_legacy_ms(row.trial_activated_at),
+            info_channel_activated_at_ms=datetime_to_legacy_ms(row.info_channel_activated_at),
+            blocked_at=ensure_utc_datetime(row.blocked_at),
         )
-        login_date = self._datetime_to_legacy_ms(
+        login_date = datetime_to_legacy_ms(
             row.first_seen_at or row.linked_at or row.last_seen_at
         ) or 0
 
@@ -473,18 +474,3 @@ class TelegramUserRepository:
         if timestamp_ms is None:
             return None
         return datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
-
-    @staticmethod
-    def _datetime_to_legacy_ms(value: datetime | None) -> int | None:
-        normalized = TelegramUserRepository._ensure_utc(value)
-        if normalized is None:
-            return None
-        return int(normalized.timestamp() * 1000)
-
-    @staticmethod
-    def _ensure_utc(value: datetime | None) -> datetime | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)

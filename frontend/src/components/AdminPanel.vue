@@ -37,6 +37,7 @@ import {
   formatAccessRequestKindLabel,
   formatAccessRequestStatusLabel,
   formatAccessScopeLabel,
+  formatPaymentStatusBadgeClass,
 } from '../utils/accessLabels'
 
 const toast = useToast()
@@ -478,16 +479,10 @@ function playbookSeverityLabel(value?: string) {
   return 'низкий'
 }
 
-function paymentBadgeClass(status?: string) {
-  const n = String(status || '').toLowerCase()
-  if (['paid', 'succeeded', 'fulfilled'].includes(n)) return 'cabinet-badge--ok'
-  if (['failed', 'canceled', 'cancelled', 'expired'].includes(n)) return 'cabinet-badge--danger'
-  return 'cabinet-badge--muted'
-}
-
 const accessGrantSourceLabel = formatAccessGrantSourceLabel
 const accessGrantScopeLabel = formatAccessScopeLabel
 const accessRequestStatusLabel = formatAccessRequestStatusLabel
+const paymentBadgeClass = formatPaymentStatusBadgeClass
 
 function accessTemplateLabel(templateCode?: string | null) {
   return formatAccessTemplateLabel(templateCode)

@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
 
 import pytz
@@ -11,6 +11,27 @@ logger = setup_logger("utils.timestamp", "utils.log")
 
 EXPIRED = "0 дней"
 LESS_THAN_HOUR = "Менее часа"
+
+
+def ensure_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def datetime_to_legacy_ms(value: datetime | None, *, none_value: int | None = None) -> int | None:
+    normalized = ensure_utc_datetime(value)
+    if normalized is None:
+        return none_value
+    return int(normalized.timestamp() * 1000)
+
+
+def datetime_to_utc_isoformat(value: datetime | None) -> str | None:
+    normalized = ensure_utc_datetime(value)
+    return normalized.isoformat() if normalized is not None else None
+
 
 class TimestampUtils:
     def __init__(self):

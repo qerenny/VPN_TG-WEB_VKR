@@ -10,7 +10,12 @@ import {
   fetchPublicConfig,
   type FrontendFeatureFlags,
 } from '../../api/publicConfig'
-import { formatAccessScopeLabel } from '../../utils/accessLabels'
+import {
+  formatAccessScopeLabel,
+  formatPaymentStatusBadgeClass,
+  formatPaymentStatusLabel,
+  formatPaymentStatusRowClass,
+} from '../../utils/accessLabels'
 import { localizePlanName } from '../../utils/accessTemplates'
 import { formatDateTime, formatMoney } from '../../utils/format'
 
@@ -46,35 +51,12 @@ function schedulePaymentRefresh() {
   }, PAYMENT_POLL_INTERVAL_MS)
 }
 
-function statusBadgeClass(status: string): string {
-  switch (status) {
-    case 'paid': return 'cabinet-badge--ok'
-    case 'pending': return 'cabinet-badge--warm'
-    case 'canceled': return 'cabinet-badge--muted'
-    case 'failed': return 'cabinet-badge--danger'
-    default: return ''
-  }
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'paid': return 'Оплачено'
-    case 'pending': return 'Ожидает'
-    case 'canceled': return 'Отменено'
-    case 'failed': return 'Ошибка'
-    default: return status
-  }
-}
-
-function statusBorderClass(status: string): string {
-  switch (status) {
-    case 'paid': return 'payment-row--paid'
-    case 'pending': return 'payment-row--pending'
-    case 'failed': return 'payment-row--failed'
-    case 'canceled': return 'payment-row--canceled'
-    default: return ''
-  }
-}
+const statusBadgeClass = (status: string) => formatPaymentStatusBadgeClass(status, {
+  fallback: '',
+  canceledClass: 'cabinet-badge--muted',
+})
+const statusLabel = formatPaymentStatusLabel
+const statusBorderClass = formatPaymentStatusRowClass
 
 async function loadPayments(options: { silent?: boolean } = {}) {
   const { silent = false } = options

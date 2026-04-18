@@ -23,7 +23,9 @@ import {
 } from '../../api/publicConfig'
 import { useSessionState } from '../../stores/session'
 import {
+  formatAccessGrantSourceIcon,
   formatAccessGrantSourceLabel,
+  formatAccessGrantStatusBadgeClass,
   formatAccessGrantStatusLabel,
   formatAccessScopeLabel,
 } from '../../utils/accessLabels'
@@ -114,8 +116,10 @@ const recentAccessGrants = computed(() => accessGrants.value.slice(0, 3))
 const activeAccessGrant = computed(() => accessGrants.value.find((item) => item.status === 'active') || null)
 
 const accessGrantSourceLabel = formatAccessGrantSourceLabel
+const accessGrantSourceIcon = formatAccessGrantSourceIcon
 const accessGrantScopeLabel = formatAccessScopeLabel
 const accessGrantStatusLabel = formatAccessGrantStatusLabel
+const accessGrantStatusBadgeClass = formatAccessGrantStatusBadgeClass
 
 function activeAccessReasonTitle() {
   const grant = activeAccessGrant.value
@@ -137,16 +141,6 @@ function activeAccessReasonFacts() {
     facts.push({ label: 'Лимит трафика', value: `${Math.round(grant.quota_bytes / (1024 * 1024 * 1024))} GB`, icon: 'data_usage' })
   }
   return facts
-}
-
-function accessGrantSourceIcon(sourceType: string) {
-  const normalized = String(sourceType || '').trim().toLowerCase()
-  if (normalized === 'payment') return 'credit_card'
-  if (normalized === 'request_approval') return 'approval'
-  if (normalized === 'access_registry') return 'badge'
-  if (normalized === 'access_registry_auto_renew') return 'autorenew'
-  if (normalized === 'admin_override') return 'admin_panel_settings'
-  return 'vpn_key'
 }
 
 async function copyReferralLink() {
@@ -340,7 +334,7 @@ onMounted(async () => {
               </div>
             </div>
             <div class="ov-grant-row__side">
-              <span class="cabinet-badge" :class="grant.status === 'active' ? 'cabinet-badge--ok' : 'cabinet-badge--muted'">
+              <span class="cabinet-badge" :class="accessGrantStatusBadgeClass(grant.status)">
                 {{ accessGrantStatusLabel(grant.status) }}
               </span>
               <small class="cabinet-note">{{ new Date(grant.created_at).toLocaleString() }}</small>

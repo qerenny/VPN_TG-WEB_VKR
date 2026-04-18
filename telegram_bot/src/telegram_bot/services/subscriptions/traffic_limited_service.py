@@ -18,7 +18,7 @@ from shared.product_constants import (
     PRODUCT_SCOPE_TRAFFIC_LIMITED,
 )
 from shared.utils.logging_utils import logger
-from shared.utils.timestamp_utils import TimestampUtils
+from shared.utils.timestamp_utils import TimestampUtils, datetime_to_legacy_ms
 from telegram_bot.services.subscriptions.traffic_limited_provisioning_service import (
     TrafficLimitedProvisioningService,
 )
@@ -261,7 +261,7 @@ class TrafficLimitedService:
             client_uuid=str(client_info.client_uuid),
             email=str(client_info.email),
             sub_id=str(client_info.subscription_id),
-            expires_at=self._datetime_to_legacy_ms(new_expires_at),
+            expires_at=datetime_to_legacy_ms(new_expires_at, none_value=0),
             total_bytes=new_allocated_bytes,
         )
 
@@ -403,7 +403,7 @@ class TrafficLimitedService:
             client_uuid=str(client_info.client_uuid),
             email=str(client_info.email),
             sub_id=str(client_info.subscription_id),
-            expires_at=self._datetime_to_legacy_ms(new_expires_at),
+            expires_at=datetime_to_legacy_ms(new_expires_at, none_value=0),
             total_bytes=new_allocated_bytes,
         )
 
@@ -464,10 +464,3 @@ class TrafficLimitedService:
             if normalized > now:
                 base = normalized
         return base + timedelta(days=int(duration_days))
-
-    @staticmethod
-    def _datetime_to_legacy_ms(value: datetime | None) -> int:
-        if value is None:
-            return 0
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return int(normalized.timestamp() * 1000)

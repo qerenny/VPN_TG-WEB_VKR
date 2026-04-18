@@ -37,7 +37,7 @@ from shared.infrastructure.access.access_registry_repository import AccessRegist
 from shared.utils.access_template_labels import format_access_template_label
 from shared.utils.traffic_format import human_view_traffic_bytes
 from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
-from shared.utils.timestamp_utils import TimestampUtils
+from shared.utils.timestamp_utils import TimestampUtils, datetime_to_legacy_ms, datetime_to_utc_isoformat
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,16 +198,16 @@ class AccountService:
                 "linked": web_account is not None,
                 "email": str(web_account.email) if web_account is not None else None,
                 "email_verified": bool(web_account and web_account.email_verified_at is not None),
-                "linked_at": self._isoformat(getattr(web_account, "linked_at", None)),
-                "last_login_at": self._isoformat(getattr(web_account, "last_login_at", None)),
+                "linked_at": datetime_to_utc_isoformat(getattr(web_account, "linked_at", None)),
+                "last_login_at": datetime_to_utc_isoformat(getattr(web_account, "last_login_at", None)),
             },
             "telegram": {
                 "linked": telegram_account is not None,
                 "telegram_id": int(telegram_account.telegram_id) if telegram_account else None,
                 "username": getattr(telegram_account, "username", None),
-                "linked_at": self._isoformat(getattr(telegram_account, "linked_at", None)),
-                "first_seen_at": self._isoformat(getattr(telegram_account, "first_seen_at", None)),
-                "last_seen_at": self._isoformat(getattr(telegram_account, "last_seen_at", None)),
+                "linked_at": datetime_to_utc_isoformat(getattr(telegram_account, "linked_at", None)),
+                "first_seen_at": datetime_to_utc_isoformat(getattr(telegram_account, "first_seen_at", None)),
+                "last_seen_at": datetime_to_utc_isoformat(getattr(telegram_account, "last_seen_at", None)),
             },
         }
 
@@ -269,9 +269,9 @@ class AccountService:
             )
 
         standard_expires_at = getattr(standard_state, "current_expires_at", None)
-        standard_expires_at_ms = self._datetime_to_legacy_ms(standard_expires_at)
+        standard_expires_at_ms = datetime_to_legacy_ms(standard_expires_at)
         traffic_limited_expires_at = getattr(traffic_limited_state, "expires_at", None)
-        traffic_limited_expires_at_ms = self._datetime_to_legacy_ms(traffic_limited_expires_at)
+        traffic_limited_expires_at_ms = datetime_to_legacy_ms(traffic_limited_expires_at)
         traffic_limited_remaining = int(getattr(traffic_limited_state, "remaining_bytes", 0) or 0)
         traffic_limited_blocked = bool(getattr(traffic_limited_state, "is_blocked", False))
         standard_is_active = bool(
@@ -297,7 +297,7 @@ class AccountService:
             "standard": {
                 "scope": PRODUCT_SCOPE_STANDARD,
                 "is_active": standard_is_active,
-                "expires_at": self._isoformat(standard_expires_at),
+                "expires_at": datetime_to_utc_isoformat(standard_expires_at),
                 "human_view_expiration_remaining": (
                     self.timestamp.calculate_time_difference(int(standard_expires_at_ms))
                     if standard_expires_at_ms
@@ -316,7 +316,7 @@ class AccountService:
             "traffic_limited": {
                 "scope": PRODUCT_SCOPE_TRAFFIC_LIMITED,
                 "is_active": traffic_limited_is_active,
-                "expires_at": self._isoformat(traffic_limited_expires_at),
+                "expires_at": datetime_to_utc_isoformat(traffic_limited_expires_at),
                 "human_view_expiration_remaining": (
                     self.timestamp.calculate_time_difference(int(traffic_limited_expires_at_ms))
                     if traffic_limited_expires_at_ms
@@ -414,9 +414,9 @@ class AccountService:
                     "provider": getattr(attempt, "provider", None),
                     "provider_payment_id": getattr(attempt, "provider_payment_id", None),
                     "provider_status": getattr(attempt, "provider_status", None),
-                    "created_at": self._isoformat(order.created_at),
-                    "paid_at": self._isoformat(order.paid_at),
-                    "fulfilled_at": self._isoformat(order.fulfilled_at),
+                    "created_at": datetime_to_utc_isoformat(order.created_at),
+                    "paid_at": datetime_to_utc_isoformat(order.paid_at),
+                    "fulfilled_at": datetime_to_utc_isoformat(order.fulfilled_at),
                 }
             )
         return payments
@@ -526,20 +526,6 @@ class AccountService:
     def _normalize_optional_email(value: str | None) -> str | None:
         normalized = str(value or "").strip().lower()
         return normalized or None
-
-    @staticmethod
-    def _isoformat(value: datetime | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return normalized.astimezone(timezone.utc).isoformat()
-
-    @staticmethod
-    def _datetime_to_legacy_ms(value: datetime | None) -> int | None:
-        if value is None:
-            return None
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return int(normalized.astimezone(timezone.utc).timestamp() * 1000)
 
     @staticmethod
     def _runtime_order_status(order_status: str | None) -> str:

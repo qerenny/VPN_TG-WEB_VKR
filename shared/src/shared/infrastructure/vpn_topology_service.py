@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import or_
 from sqlmodel import select
 
 from shared.config.config import (
@@ -452,26 +451,6 @@ class VpnTopologyService:
             deployment.updated_at = now
 
         return synced_count
-
-    async def _resolve_vpn_client(
-        self,
-        session,
-        *,
-        scope: str,
-        external_client_uuid: str,
-        subscription_external_id: str,
-        external_email: str,
-    ) -> VpnClient | None:
-        stmt = select(VpnClient).where(
-            VpnClient.scope == str(scope),
-            VpnClient.deactivated_at.is_(None),
-            or_(
-                VpnClient.external_client_uuid == str(external_client_uuid),
-                VpnClient.subscription_external_id == str(subscription_external_id),
-                VpnClient.external_email == str(external_email),
-            ),
-        )
-        return (await session.execute(stmt)).scalar_one_or_none()
 
     @staticmethod
     def _configured_server_pools() -> list[tuple[str, dict[str, dict]]]:

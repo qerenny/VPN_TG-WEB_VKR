@@ -28,6 +28,7 @@ from shared.models.subscriptions.subscription_state_model import SubscriptionSta
 from shared.models.users.telegram_account_model import TelegramAccount
 from shared.product_constants import ENTITLEMENT_KIND_TIME
 from shared.utils.logging_utils import log_function_call, setup_logger
+from shared.utils.timestamp_utils import datetime_to_legacy_ms
 
 logger = setup_logger("payment.repository", "database.log")
 
@@ -189,7 +190,7 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
             or row.subscription_grant_id is not None
             or str(row.order_status).strip().lower() == ORDER_STATUS_FULFILLED
         )
-        created_at = self._datetime_to_legacy_ms(
+        created_at = datetime_to_legacy_ms(
             row.order_created_at or row.attempt_created_at
         ) or 0
 
@@ -453,22 +454,7 @@ class PaymentRepository(BaseRepository[PaymentSnapshot]):
         return str(getattr(plan, "entitlement_kind", "") or "").strip().lower() == ENTITLEMENT_KIND_TIME
 
     @staticmethod
-    def _datetime_to_legacy_ms(value: datetime | None) -> int | None:
-        normalized = PaymentRepository._ensure_utc(value)
-        if normalized is None:
-            return None
-        return int(normalized.timestamp() * 1000)
-
-    @staticmethod
     def _legacy_ts_to_datetime(timestamp_ms: int | None) -> datetime | None:
         if timestamp_ms is None:
             return None
         return datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
-
-    @staticmethod
-    def _ensure_utc(value: datetime | None) -> datetime | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)

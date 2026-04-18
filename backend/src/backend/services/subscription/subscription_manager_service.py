@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-
 from fastapi import HTTPException
 from jwt import PyJWTError
 from sqlmodel import select
@@ -20,7 +18,7 @@ from shared.models.vpn.vpn_client_model import VpnClient
 from shared.product_constants import PRODUCT_SCOPE_STANDARD, PRODUCT_SCOPE_TRAFFIC_LIMITED
 from shared.utils.traffic_format import human_view_traffic_bytes
 from shared.utils.jwt_encoder import JWTEncoder
-from shared.utils.timestamp_utils import TimestampUtils
+from shared.utils.timestamp_utils import TimestampUtils, datetime_to_legacy_ms
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +181,7 @@ class SubscriptionManagerService:
         return TrafficLimitedSubscriptionSnapshot(
             external_email=str(vpn_client.external_email),
             subscription_external_id=str(vpn_client.subscription_external_id),
-            expires_at_ms=self._datetime_to_legacy_ms(getattr(state, "expires_at", None)),
+            expires_at_ms=datetime_to_legacy_ms(getattr(state, "expires_at", None)),
             allocated_bytes=int(getattr(state, "allocated_bytes", 0) or 0),
             used_bytes=int(getattr(state, "used_bytes", 0) or 0),
             remaining_bytes=int(getattr(state, "remaining_bytes", 0) or 0),
@@ -196,9 +194,6 @@ class SubscriptionManagerService:
         if token_scope != scope:
             raise HTTPException(status_code=404, detail="Token scope mismatch")
         return scope
-
-    async def _create_app_link(self, sub_id: int) -> str:
-        return f"v2raytun://import/{BACKEND_TELEGRAM_SUBSCRIPTION_LINK}?uuid={sub_id}"
 
     async def _create_sub_link(self, sub_id: str, *, scope: str) -> str:
         base_url = BACKEND_TELEGRAM_SUBSCRIPTION_LINK
@@ -231,10 +226,3 @@ class SubscriptionManagerService:
             .replace(microsecond=0, tzinfo=None)
             .strftime("%H:%M:%S %d-%m-%Y")
         )
-
-    @staticmethod
-    def _datetime_to_legacy_ms(value: datetime | None) -> int | None:
-        if value is None:
-            return None
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return int(normalized.astimezone(timezone.utc).timestamp() * 1000)

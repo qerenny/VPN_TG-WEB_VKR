@@ -1,11 +1,16 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
 import pytz
 from dateutil.relativedelta import relativedelta
 
-from shared.utils.timestamp_utils import TimestampUtils
+from shared.utils.timestamp_utils import (
+    TimestampUtils,
+    datetime_to_legacy_ms,
+    datetime_to_utc_isoformat,
+    ensure_utc_datetime,
+)
 from telegram_bot.shared.config.navigation import EXPIRED, LESS_THAN_HOUR
 
 
@@ -72,6 +77,29 @@ def test_date_to_timestamp_and_back(utils):
     restored = utils.timestamp_to_date(timestamp)
 
     assert abs((restored - current).total_seconds()) < 1
+
+
+def test_ensure_utc_datetime_treats_naive_values_as_utc():
+    value = datetime(2025, 1, 1, 10, 0, 0)
+
+    assert ensure_utc_datetime(value) == datetime(2025, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+
+
+def test_datetime_to_legacy_ms_normalizes_timezone():
+    value = MOSCOW.localize(datetime(2025, 1, 1, 10, 0, 0))
+    expected = int(datetime(2025, 1, 1, 7, 0, tzinfo=timezone.utc).timestamp() * 1000)
+
+    assert datetime_to_legacy_ms(value) == expected
+
+
+def test_datetime_to_legacy_ms_returns_configured_none_value():
+    assert datetime_to_legacy_ms(None, none_value=0) == 0
+
+
+def test_datetime_to_utc_isoformat_normalizes_timezone():
+    value = MOSCOW.localize(datetime(2025, 1, 1, 10, 0, 0))
+
+    assert datetime_to_utc_isoformat(value) == "2025-01-01T07:00:00+00:00"
 
 
 def test_set_client_date_uses_current_time(utils, frozen_time):
