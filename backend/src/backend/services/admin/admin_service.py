@@ -2030,14 +2030,6 @@ class AdminService:
         return value.astimezone(timezone.utc).isoformat()
 
     @staticmethod
-    def _datetime_to_legacy_ms(value: datetime | None) -> int | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return int(value.timestamp() * 1000)
-
-    @staticmethod
     def _legacy_ms_to_iso(value: int | None) -> str | None:
         if value is None:
             return None

@@ -3,7 +3,21 @@ import { getUrlData } from './http'
 import { createCachedSingleFlight } from './requestCache'
 import type { FeatureFlags } from './types'
 
-export interface FrontendFeatureFlags extends FeatureFlags {}
+export type FrontendFeatureFlags = FeatureFlags
+
+const FEATURE_FLAG_KEYS = [
+  'access_requests_enabled',
+  'access_registry_enabled',
+  'access_admin_override_enabled',
+  'commerce_enabled',
+  'referrals_enabled',
+  'promos_enabled',
+  'web_purchase_enabled',
+  'telegram_bot_enabled',
+  'mail_enabled',
+  'standard_config_enabled',
+  'traffic_limited_config_enabled',
+] as const satisfies readonly (keyof FrontendFeatureFlags)[]
 
 export const DEFAULT_FEATURE_FLAGS: FrontendFeatureFlags = Object.freeze({
   access_requests_enabled: false,
@@ -18,6 +32,21 @@ export const DEFAULT_FEATURE_FLAGS: FrontendFeatureFlags = Object.freeze({
   standard_config_enabled: false,
   traffic_limited_config_enabled: false,
 })
+
+export function normalizeFeatureFlags(
+  payload?: Partial<Record<keyof FrontendFeatureFlags, unknown>> | null,
+): FrontendFeatureFlags {
+  const flags: FrontendFeatureFlags = { ...DEFAULT_FEATURE_FLAGS }
+  const source = payload || {}
+
+  for (const key of FEATURE_FLAG_KEYS) {
+    if (typeof source[key] === 'boolean') {
+      flags[key] = source[key]
+    }
+  }
+
+  return flags
+}
 
 export interface FrontendProductConfig {
   name: string
@@ -165,52 +194,7 @@ function normalizePublicConfig(payload: unknown): FrontendPublicConfig {
           ? (rawProduct.docs_links as Record<string, string>)
           : {},
     },
-    features: {
-      access_requests_enabled:
-        typeof rawFeatures.access_requests_enabled === 'boolean'
-          ? rawFeatures.access_requests_enabled
-          : DEFAULT_FEATURE_FLAGS.access_requests_enabled,
-      access_registry_enabled:
-        typeof rawFeatures.access_registry_enabled === 'boolean'
-          ? rawFeatures.access_registry_enabled
-          : DEFAULT_FEATURE_FLAGS.access_registry_enabled,
-      access_admin_override_enabled:
-        typeof rawFeatures.access_admin_override_enabled === 'boolean'
-          ? rawFeatures.access_admin_override_enabled
-          : DEFAULT_FEATURE_FLAGS.access_admin_override_enabled,
-      commerce_enabled:
-        typeof rawFeatures.commerce_enabled === 'boolean'
-          ? rawFeatures.commerce_enabled
-          : DEFAULT_FEATURE_FLAGS.commerce_enabled,
-      referrals_enabled:
-        typeof rawFeatures.referrals_enabled === 'boolean'
-          ? rawFeatures.referrals_enabled
-          : DEFAULT_FEATURE_FLAGS.referrals_enabled,
-      promos_enabled:
-        typeof rawFeatures.promos_enabled === 'boolean'
-          ? rawFeatures.promos_enabled
-          : DEFAULT_FEATURE_FLAGS.promos_enabled,
-      web_purchase_enabled:
-        typeof rawFeatures.web_purchase_enabled === 'boolean'
-          ? rawFeatures.web_purchase_enabled
-          : DEFAULT_FEATURE_FLAGS.web_purchase_enabled,
-      telegram_bot_enabled:
-        typeof rawFeatures.telegram_bot_enabled === 'boolean'
-          ? rawFeatures.telegram_bot_enabled
-          : DEFAULT_FEATURE_FLAGS.telegram_bot_enabled,
-      mail_enabled:
-        typeof rawFeatures.mail_enabled === 'boolean'
-          ? rawFeatures.mail_enabled
-          : DEFAULT_FEATURE_FLAGS.mail_enabled,
-      standard_config_enabled:
-        typeof rawFeatures.standard_config_enabled === 'boolean'
-          ? rawFeatures.standard_config_enabled
-          : DEFAULT_FEATURE_FLAGS.standard_config_enabled,
-      traffic_limited_config_enabled:
-        typeof rawFeatures.traffic_limited_config_enabled === 'boolean'
-          ? rawFeatures.traffic_limited_config_enabled
-          : DEFAULT_FEATURE_FLAGS.traffic_limited_config_enabled,
-    },
+    features: normalizeFeatureFlags(rawFeatures),
     support_link: typeof value.support_link === 'string' ? value.support_link : undefined,
     payment_methods: paymentMethods,
     subscription_add_links: subscriptionAddLinks,

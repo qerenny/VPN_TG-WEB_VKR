@@ -91,7 +91,7 @@ export interface WebPlanCatalog {
   traffic_limited: WebCatalogPlan[]
 }
 
-export interface WebAccessRequestItem extends AccessRequestItem {}
+export type WebAccessRequestItem = AccessRequestItem
 
 export interface WebAccessGrantItem {
   id: number

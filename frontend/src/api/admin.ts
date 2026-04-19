@@ -11,7 +11,7 @@ export interface AdminActionPayload {
   params?: Record<string, unknown>
 }
 
-export interface AdminFeatureFlags extends FeatureFlags {}
+export type AdminFeatureFlags = FeatureFlags
 
 export interface AdminOverview {
   actor?: string
@@ -23,7 +23,7 @@ export interface AdminOverview {
   sources?: Record<string, string>
 }
 
-export interface AdminAccessRequestItem extends AccessRequestItem {}
+export type AdminAccessRequestItem = AccessRequestItem
 
 export interface AdminAccessRegistryItem {
   id: number

@@ -28,6 +28,7 @@ import {
   type AdminPromoCode,
   type AdminPromoCreatePayload,
 } from '../api/admin'
+import { normalizeFeatureFlags } from '../api/publicConfig'
 import {
   buildAccessTemplateOptions,
   formatAccessTemplateLabel,
@@ -108,20 +109,6 @@ const adminOverrideReplaceExisting = ref(false)
 const adminOverrideDurationDays = ref<number | null>(null)
 const adminOverrideQuotaGb = ref<number | null>(null)
 const revokeAccessScope = ref<'standard' | 'traffic_limited'>('standard')
-
-const defaultAdminFeatures: AdminFeatureFlags = Object.freeze({
-  access_requests_enabled: false,
-  access_registry_enabled: false,
-  access_admin_override_enabled: false,
-  commerce_enabled: true,
-  referrals_enabled: true,
-  promos_enabled: true,
-  web_purchase_enabled: true,
-  telegram_bot_enabled: true,
-  mail_enabled: false,
-  standard_config_enabled: false,
-  traffic_limited_config_enabled: false,
-})
 
 // Tab state for user 360
 const activeUserTab = ref('overview')
@@ -333,10 +320,7 @@ const rawActionGroups = [
 
 const canLoad = computed(() => token.value.trim().length > 0)
 const isAuthorized = computed(() => !!overview.value)
-const featureFlags = computed<AdminFeatureFlags>(() => ({
-  ...defaultAdminFeatures,
-  ...(overview.value?.features || {}),
-}))
+const featureFlags = computed<AdminFeatureFlags>(() => normalizeAdminFeatures(overview.value))
 const commerceEnabled = computed(() => featureFlags.value.commerce_enabled)
 const accessRequestsEnabled = computed(() => featureFlags.value.access_requests_enabled)
 const accessRegistryEnabled = computed(() => featureFlags.value.access_registry_enabled)
@@ -375,10 +359,7 @@ const userAudit = computed(() => {
 })
 
 function normalizeAdminFeatures(payload?: AdminOverview | null): AdminFeatureFlags {
-  return {
-    ...defaultAdminFeatures,
-    ...(payload?.features || {}),
-  }
+  return normalizeFeatureFlags(payload?.features)
 }
 
 function isActionVisible(actionType: AdminActionType) {
