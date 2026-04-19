@@ -264,9 +264,23 @@ def _is_effective_text(value: object) -> bool:
     return bool(normalized) and not _is_required_placeholder(normalized)
 
 
-def _build_telegram_link(username: str) -> str:
-    normalized = str(username or "").strip().lstrip("@")
-    return f"https://t.me/{normalized}" if normalized else ""
+def _build_telegram_link(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+
+    for prefix in ("https://t.me/", "http://t.me/", "https://telegram.me/", "http://telegram.me/"):
+        if normalized.startswith(prefix):
+            return f"https://{normalized.split('://', 1)[1]}".rstrip("/")
+
+    if normalized.startswith(("t.me/", "telegram.me/")):
+        return f"https://{normalized}".rstrip("/")
+
+    normalized = normalized.lstrip("@").strip("/")
+    if not normalized or any(char.isspace() for char in normalized):
+        return ""
+
+    return f"https://t.me/{normalized}"
 
 
 _PRODUCT_CONFIG = _get_config_section("product")
@@ -464,12 +478,16 @@ BOT_BONUS_REFERRER_INT = int(_BOT_CONFIG.get("bonus_referrer", 0))
 BOT_BONUS_NEW_USER_INT = int(_BOT_CONFIG.get("bonus_new_user", 0))
 BOT_INFO_CHANNEL_TG_ID = _config_text(_BOT_CONFIG, "info_channel_id", "")
 BOT_INFO_CHANNEL_USERNAME = _config_text(_BOT_CONFIG, "info_channel", "")
+BOT_INFO_CHANNEL_LINK = _config_text(_BOT_CONFIG, "info_channel_link", "")
 BOT_SUPPORT_TG_ID = _config_text(_BOT_CONFIG, "support", "")
 
 BOT_SUPPORT_TG_LINK = _build_telegram_link(BOT_SUPPORT_TG_ID)
 BOT_RETURN_URL = _build_telegram_link(BOT_TG_ID)
 BOT_REFERRAL_LINK = f"https://t.me/{BOT_TG_ID}?start="
-BOT_INFO_CHANNEL_TG_LINK = _build_telegram_link(BOT_INFO_CHANNEL_USERNAME)
+BOT_INFO_CHANNEL_TG_LINK = (
+    _build_telegram_link(BOT_INFO_CHANNEL_LINK)
+    or _build_telegram_link(BOT_INFO_CHANNEL_USERNAME)
+)
 BOT_INFO_CHANNEL_ENABLED = bool(BOT_INFO_CHANNEL_TG_ID and BOT_INFO_CHANNEL_TG_LINK)
 
 # ========== IMAGES ==========

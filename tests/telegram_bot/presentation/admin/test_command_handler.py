@@ -10,6 +10,16 @@ def make_message(chat_id: int) -> SimpleNamespace:
     return SimpleNamespace(chat=SimpleNamespace(id=chat_id))
 
 
+def make_photo_message(chat_id: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        chat=SimpleNamespace(id=chat_id),
+        photo=[
+            SimpleNamespace(file_id="small-photo-id"),
+            SimpleNamespace(file_id="largest-photo-id"),
+        ],
+    )
+
+
 def make_call(chat_id: int, data: str, callback_id: str = "cb-1") -> SimpleNamespace:
     return SimpleNamespace(
         id=callback_id,
@@ -137,6 +147,44 @@ async def test_show_admin_panel_sends_web_admin_link(handler):
     assert "временной ссылке" in kwargs["text"].lower()
     button = kwargs["reply_markup"].keyboard[0][0]
     assert button.url == "https://api.example.com/test-api/admin/session/bootstrap?grant=grant-token"
+
+
+@pytest.mark.asyncio
+async def test_show_photo_file_id_replies_to_admin(handler):
+    message = make_photo_message(6884511529)
+
+    with (
+        patch(
+            "telegram_bot.presentation.admin.command_handler.BOT_ADMIN_IDS",
+            [6884511529],
+        ),
+        patch(
+            "telegram_bot.presentation.admin.command_handler.bot.reply_to",
+            new_callable=AsyncMock,
+        ) as mock_reply,
+    ):
+        await handler.show_photo_file_id(message)
+
+    mock_reply.assert_awaited_once_with(message, "file_id: largest-photo-id")
+
+
+@pytest.mark.asyncio
+async def test_show_photo_file_id_ignores_non_admin(handler):
+    message = make_photo_message(123)
+
+    with (
+        patch(
+            "telegram_bot.presentation.admin.command_handler.BOT_ADMIN_IDS",
+            [6884511529],
+        ),
+        patch(
+            "telegram_bot.presentation.admin.command_handler.bot.reply_to",
+            new_callable=AsyncMock,
+        ) as mock_reply,
+    ):
+        await handler.show_photo_file_id(message)
+
+    mock_reply.assert_not_awaited()
 
 
 @pytest.mark.asyncio

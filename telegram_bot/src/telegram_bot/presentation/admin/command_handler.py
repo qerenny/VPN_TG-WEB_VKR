@@ -140,6 +140,16 @@ class AdminCommandHandler:
         text_lines = [f"{name} -> {file_id}" for name, file_id in photos_db.items()]
         await bot.send_message(chat_id=message.chat.id, text="\n".join(text_lines))
 
+    async def show_photo_file_id(self, message: Message) -> None:
+        if not self._is_admin(message.chat.id):
+            return
+
+        if not message.photo:
+            return
+
+        largest = message.photo[-1]
+        await bot.reply_to(message, f"file_id: {largest.file_id}")
+
     # === New admin functionality ===
     async def show_admin_panel(self, message: Message) -> None:
         if not self._is_admin(message.chat.id):

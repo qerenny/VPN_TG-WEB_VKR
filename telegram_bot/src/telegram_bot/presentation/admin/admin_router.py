@@ -41,9 +41,19 @@ def register_admin_routes(admin_command_handler: AdminCommandHandler):
             limit=limit,
         )
 
-    @bot.message_handler(func=lambda message: admin_command_handler.has_pending_input(message.chat.id))
+    @bot.message_handler(
+        content_types=["text", "photo"],
+        func=lambda message: admin_command_handler.has_pending_input(message.chat.id),
+    )
     async def handle_admin_pending_input(message: Message):
         await admin_command_handler.handle_admin_text(message)
+
+    @bot.message_handler(
+        content_types=["photo"],
+        func=lambda message: not admin_command_handler.has_pending_input(message.chat.id),
+    )
+    async def handle_photo_file_id(message: Message):
+        await admin_command_handler.show_photo_file_id(message)
 
     # @bot_fun.message_handler(commands=['message'])
     # async def handle_broadcast(message: Message):

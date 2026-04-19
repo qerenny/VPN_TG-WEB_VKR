@@ -152,7 +152,7 @@ TRAFFIC_LIMITED_SERVERS__GERMANY__INBOUNDS__6="estonia"
 
 Картинки в сообщениях тоже optional. Пустые `IMAGES__...` не ломают runtime.
 
-Информационный канал optional. Если `BOT__INFO_CHANNEL` и `BOT__INFO_CHANNEL_ID` пустые, проверка подписки на канал и кнопка канала в боте отключаются.
+Информационный канал optional. Для публичного канала укажи `BOT__INFO_CHANNEL` как username без пробелов, например `remote_access_news`, и `BOT__INFO_CHANNEL_ID` как `@remote_access_news` или numeric id. Для приватного канала укажи `BOT__INFO_CHANNEL_ID` как numeric id и `BOT__INFO_CHANNEL_LINK` как invite-ссылку вида `https://t.me/+...`. Если ссылка/username и id пустые, проверка подписки на канал и кнопка канала в боте отключаются.
 
 FAQ, ссылки на инструкции по устройствам и страница "О сервисе" тоже optional. Если `PRODUCT__DOCS_LINKS__...` и `FRONTEND__INSTRUCTION_LINK_...` пустые, соответствующие кнопки и ссылки не показываются.
 
